@@ -21,6 +21,26 @@ import type { NuxNetwork } from "./networks";
 
 export const GAP_LIMIT = 20;
 
+/**
+ * Pause between discovery requests, in milliseconds. A full scan is
+ * ~40 requests; fired back-to-back they read as a burst to the shared
+ * rate limiter in front of the public electrs instances, which first
+ * answers 429 and then starts dropping connections (field finding).
+ * Paced out, a scan takes a few calm seconds instead.
+ */
+const DISCOVERY_PACE_MS = 150;
+
+interface PaceState {
+  requests: number;
+}
+
+async function pace(state: PaceState): Promise<void> {
+  if (state.requests > 0) {
+    await new Promise((resolve) => setTimeout(resolve, DISCOVERY_PACE_MS));
+  }
+  state.requests += 1;
+}
+
 export interface OwnedAddress {
   address: string;
   chain: 0 | 1;
@@ -54,12 +74,14 @@ async function discoverChain(
   accountPublic: AccountPublic,
   network: NuxNetwork,
   chain: 0 | 1,
+  paceState: PaceState,
 ): Promise<{ addresses: OwnedAddress[]; utxos: WalletUtxo[] }> {
   const addresses: OwnedAddress[] = [];
   const utxos: WalletUtxo[] = [];
   let gap = 0;
   for (let index = 0; gap < GAP_LIMIT; index++) {
     const address = deriveAddress(accountPublic, network, chain, index);
+    await pace(paceState);
     const info = await client.getAddressInfo(address);
     const used =
       info.chainStats.txCount + info.mempoolStats.txCount > 0;
@@ -69,6 +91,7 @@ async function discoverChain(
       continue;
     }
     gap = 0;
+    await pace(paceState);
     const found: Utxo[] = await client.getAddressUtxos(address);
     for (const utxo of found) {
       if (!utxo.status.confirmed) continue;
@@ -90,8 +113,9 @@ export async function discoverWallet(
   accountPublic: AccountPublic,
   network: NuxNetwork,
 ): Promise<WalletState> {
-  const receive = await discoverChain(client, accountPublic, network, 0);
-  const change = await discoverChain(client, accountPublic, network, 1);
+  const paceState: PaceState = { requests: 0 };
+  const receive = await discoverChain(client, accountPublic, network, 0, paceState);
+  const change = await discoverChain(client, accountPublic, network, 1, paceState);
   // The scan always ends with an unused tail (the gap limit), so a
   // first-unused change address exists; fall back to the last scanned
   // address in the unreachable contrary case.
