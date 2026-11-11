@@ -67,7 +67,11 @@ import {
   touchSession,
   unlockVault,
 } from "../lib/vault";
-import { discoverWallet, ownershipMap } from "../lib/wallet";
+import {
+  discoverWallet,
+  ownershipMap,
+  type WalletState,
+} from "../lib/wallet";
 
 const POLL_ALARM = "nux-connect-poll";
 const ERROR_SERVER = -32000;
@@ -84,6 +88,61 @@ async function walletPrimaryAddress(): Promise<string | null> {
   const publics = await loadAccountPublics();
   if (!publics) return null;
   return primaryAddress(publics[activeNetwork().id], activeNetwork());
+}
+
+// ---------------------------------------------------------------------------
+// Wallet discovery cache
+//
+// A full discovery scan costs dozens of electrs requests (both chains
+// up to the gap limit), and the public instances rate-limit. Rescanning
+// from zero on every send attempt both fails against a warm limiter
+// and keeps it warm (field finding). The result is therefore cached
+// in session storage for a short window, keyed by network and primary
+// address; any successful broadcast of our own invalidates it at once,
+// because our own send changes the UTXO set.
+
+const DISCOVERY_CACHE_KEY = "walletDiscoveryCache";
+const DISCOVERY_CACHE_TTL_MS = 60_000;
+
+interface DiscoveryCacheRecord {
+  at: number;
+  network: string;
+  address: string;
+  state: WalletState;
+}
+
+async function discoverWalletCached(client: ElectrsClient): Promise<WalletState> {
+  const network = activeNetwork();
+  const publics = await loadAccountPublics();
+  if (!publics) {
+    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
+  }
+  const address = primaryAddress(publics[network.id], network);
+  const stored = await chrome.storage.session.get(DISCOVERY_CACHE_KEY);
+  const cached = stored[DISCOVERY_CACHE_KEY] as
+    | DiscoveryCacheRecord
+    | undefined;
+  if (
+    cached &&
+    cached.network === network.id &&
+    cached.address === address &&
+    Date.now() - cached.at < DISCOVERY_CACHE_TTL_MS
+  ) {
+    return cached.state;
+  }
+  const state = await discoverWallet(client, publics[network.id], network);
+  const record: DiscoveryCacheRecord = {
+    at: Date.now(),
+    network: network.id,
+    address,
+    state,
+  };
+  await chrome.storage.session.set({ [DISCOVERY_CACHE_KEY]: record });
+  return state;
+}
+
+async function invalidateDiscoveryCache(): Promise<void> {
+  await chrome.storage.session.remove(DISCOVERY_CACHE_KEY);
 }
 
 /** The accounts a page at this origin may currently see. */
@@ -456,15 +515,12 @@ async function handleSendTransaction(
   const { to, amount, feeRate: givenRate } = parseSendParams(params);
 
   const network = activeNetwork();
-  const publics = await loadAccountPublics();
-  if (!publics) {
-    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
-  }
   const client = new ElectrsClient(network);
   let state;
   try {
-    state = await discoverWallet(client, publics[network.id], network);
+    state = await discoverWalletCached(client);
   } catch (error) {
+    if (error instanceof ProviderRpcError) throw error;
     throw new ProviderRpcError(
       ERROR_SERVER,
       `Could not read the wallet's UTXOs: ${
@@ -535,15 +591,12 @@ async function handlePsbtRequest(
     );
   }
   const network = activeNetwork();
-  const publics = await loadAccountPublics();
-  if (!publics) {
-    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
-  }
   const client = new ElectrsClient(network);
   let state;
   try {
-    state = await discoverWallet(client, publics[network.id], network);
+    state = await discoverWalletCached(client);
   } catch (error) {
+    if (error instanceof ProviderRpcError) throw error;
     throw new ProviderRpcError(
       ERROR_SERVER,
       `Could not read the wallet state: ${
@@ -688,7 +741,9 @@ async function executeApproval(pending: PendingRequest): Promise<unknown> {
       const { psbt } = summarizePsbt(pending.sendDraft.psbtBase64, network);
       signWalletPsbt(psbt, mnemonic, network, pending.sendOwnership);
       const hex = finalizeToHex(psbt);
-      return new ElectrsClient(network).broadcastTx(hex);
+      const txid = await new ElectrsClient(network).broadcastTx(hex);
+      await invalidateDiscoveryCache();
+      return txid;
     }
     case "signMessage": {
       if (pending.message === undefined) {
@@ -710,7 +765,9 @@ async function executeApproval(pending: PendingRequest): Promise<unknown> {
         return psbt.toBase64();
       }
       const hex = finalizeToHex(psbt);
-      return new ElectrsClient(network).broadcastTx(hex);
+      const txid = await new ElectrsClient(network).broadcastTx(hex);
+      await invalidateDiscoveryCache();
+      return txid;
     }
   }
 }

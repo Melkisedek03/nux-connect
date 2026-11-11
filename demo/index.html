@@ -48,7 +48,7 @@
       <button id="accounts">Get accounts</button>
       <button id="balance">Get balance</button>
       <button id="signMessage">Sign message</button>
-      <button id="sendSelf">Send 1,000 nusan to self</button>
+      <button id="sendSelf">Send 500 nusan to self</button>
     </p>
     <pre id="log">Log ready.</pre>
     <script>
@@ -84,7 +84,7 @@
           log("Connect first — Send targets your own connected address.");
           return;
         }
-        call("nux_sendTransaction", { to: lastAccounts[0], amount: 1000 });
+        call("nux_sendTransaction", { to: lastAccounts[0], amount: 500 });
       });
       let watching = false;
       function watchEvents() {
