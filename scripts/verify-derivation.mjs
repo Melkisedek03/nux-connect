@@ -20,6 +20,8 @@ import { bech32 } from "@scure/base";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { webcrypto } from "node:crypto";
 import vm from "node:vm";
 
 const failures = [];
@@ -154,8 +156,10 @@ for (const net of [networks.testnet, networks.mainnet]) {
     ].join("\n"),
   );
   // The probe entry lives in tmp; rewrite its relative imports to absolute
-  // source paths so esbuild can resolve them.
-  const srcRoot = new URL("../src", import.meta.url).pathname;
+  // source paths so esbuild can resolve them. fileURLToPath (not .pathname)
+  // keeps this correct on Windows, and forward slashes are used so the
+  // rewritten import specifiers stay valid there too.
+  const srcRoot = fileURLToPath(new URL("../src", import.meta.url)).replaceAll("\\", "/");
   const probeSource = readFileSync(probeEntry, "utf8")
     .replaceAll("../src", srcRoot.replace(/\/$/, ""));
   writeFileSync(probeEntry, probeSource);
@@ -169,8 +173,11 @@ for (const net of [networks.testnet, networks.mainnet]) {
     outfile: probeBundle,
     logLevel: "silent",
   });
+  // The sandbox crypto comes from node:crypto explicitly: on some Node
+  // versions the global WebCrypto object does not survive being copied
+  // into a vm context, which made this step fail for harness reasons.
   const sandbox = {
-    console, crypto: globalThis.crypto, setTimeout, clearTimeout,
+    console, crypto: webcrypto, setTimeout, clearTimeout,
     TextEncoder, TextDecoder, atob, btoa, URL,
   };
   sandbox.self = sandbox;
