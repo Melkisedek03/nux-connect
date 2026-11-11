@@ -20,7 +20,7 @@ import { bech32 } from "@scure/base";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { webcrypto } from "node:crypto";
 import vm from "node:vm";
 
@@ -52,7 +52,9 @@ buildSync({
 // keys.ts imports networks.ts by relative path; networks must be bundled too,
 // which esbuild already handled via the entry's import graph. But keys.ts does
 // not import globals; derivation in Node works because Node provides Buffer.
-const keys = await import(bundlePath);
+// The dynamic import goes through pathToFileURL: on Windows a bare absolute
+// path ("C:\...") is rejected by the ESM loader, which requires a file:// URL.
+const keys = await import(pathToFileURL(bundlePath).href);
 const networks = {
   testnet: {
     id: "testnet", label: "Testnet", bech32Hrp: "tn", coinType: 1,
