@@ -10,6 +10,7 @@
 import {
   CONTENT_MESSAGE_SOURCE,
   PAGE_MESSAGE_SOURCE,
+  type PageEventMessage,
   type PageRequestMessage,
   type PageResponseMessage,
 } from "../lib/rpc";
@@ -60,4 +61,24 @@ window.addEventListener("message", (event: MessageEvent) => {
       window.postMessage(reply, location.origin);
     },
   );
+});
+
+// Provider events (accountsChanged, networkChanged) flow the other way:
+// the background addresses them to this tab, and they are relayed into
+// the page world with the same envelope as responses.
+chrome.runtime.onMessage.addListener((message) => {
+  if (
+    !message ||
+    message.kind !== "nux-provider-event" ||
+    typeof message.event !== "string"
+  ) {
+    return;
+  }
+  const eventMessage: PageEventMessage = {
+    source: CONTENT_MESSAGE_SOURCE,
+    kind: "event",
+    event: message.event,
+    args: Array.isArray(message.args) ? message.args : [],
+  };
+  window.postMessage(eventMessage, location.origin);
 });

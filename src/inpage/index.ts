@@ -11,7 +11,6 @@ import {
   PAGE_MESSAGE_SOURCE,
   ProviderRpcError,
   type PageRequestMessage,
-  type PageResponseMessage,
   type ProviderRequest,
 } from "../lib/rpc";
 
@@ -32,8 +31,27 @@ class NuxProvider {
   constructor() {
     window.addEventListener("message", (event: MessageEvent) => {
       if (event.source !== window) return;
-      const data = event.data as Partial<PageResponseMessage> | undefined;
-      if (!data || data.source !== CONTENT_MESSAGE_SOURCE || data.kind !== "response") {
+      const data = event.data as
+        | {
+            source?: string;
+            kind?: string;
+            id?: number;
+            result?: unknown;
+            error?: { code: number; message: string };
+            event?: string;
+            args?: unknown[];
+          }
+        | undefined;
+      if (!data || data.source !== CONTENT_MESSAGE_SOURCE) {
+        return;
+      }
+      if (data.kind === "event") {
+        if (typeof data.event === "string") {
+          this.emit(data.event, ...(data.args ?? []));
+        }
+        return;
+      }
+      if (data.kind !== "response") {
         return;
       }
       const pending = this.pending.get(data.id as number);

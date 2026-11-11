@@ -63,3 +63,11 @@ export interface PageResponseMessage {
   result?: unknown;
   error?: { code: number; message: string };
 }
+
+/** Provider event relayed from the background through the content script. */
+export interface PageEventMessage {
+  source: typeof CONTENT_MESSAGE_SOURCE;
+  kind: "event";
+  event: string;
+  args: unknown[];
+}

@@ -21,12 +21,19 @@ interface StatusResult {
   unconfirmedBalance: number | null;
 }
 
+interface Connection {
+  origin: string;
+  addresses: string[];
+}
+
 type InternalRequest =
   | "getStatus"
   | "vaultCreate"
   | "vaultImport"
   | "vaultUnlock"
-  | "vaultLock";
+  | "vaultLock"
+  | "getConnections"
+  | "disconnectOrigin";
 
 function call<T>(request: InternalRequest, payload: object = {}): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -95,6 +102,51 @@ function renderWallet(status: StatusResult): void {
     setText("walletNote", `Backend status: ${status.statusError}`);
   }
   show("viewWallet");
+  void renderConnections();
+}
+
+function renderConnectionsList(connections: Connection[]): void {
+  const list = el("connectionsList");
+  list.textContent = "";
+  if (connections.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "No sites connected yet.";
+    list.appendChild(empty);
+    return;
+  }
+  for (const connection of connections) {
+    const row = document.createElement("p");
+    const origin = document.createElement("span");
+    origin.className = "mono";
+    origin.textContent = connection.origin;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = "Disconnect";
+    button.style.marginLeft = "8px";
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      void call<{ connections: Connection[] }>("disconnectOrigin", {
+        origin: connection.origin,
+      })
+        .then((result) => renderConnectionsList(result.connections))
+        .catch(() => {
+          button.disabled = false;
+        });
+    });
+    row.appendChild(origin);
+    row.appendChild(button);
+    list.appendChild(row);
+  }
+}
+
+async function renderConnections(): Promise<void> {
+  try {
+    const result = await call<{ connections: Connection[] }>("getConnections");
+    renderConnectionsList(result.connections);
+  } catch {
+    // The wallet view stays usable without the connections list.
+  }
 }
 
 async function refresh(): Promise<void> {
