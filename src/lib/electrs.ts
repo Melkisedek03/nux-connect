@@ -54,11 +54,42 @@ function mapStats(raw: RawStats): AddressStats {
 /** Fallback fee rate (nusan/vbyte) used when the endpoint is unreachable. */
 export const FALLBACK_FEE_RATE = 1;
 
+/**
+ * Backoff schedule for HTTP 429 (rate limited) responses, in
+ * milliseconds, jittered ±25%. The public electrs instances sit behind
+ * a shared rate limiter, and a wallet discovery scan is dozens of
+ * requests: without riding out a 429, a scan dies partway whenever the
+ * limiter is warm (field finding). A 429 means the request was
+ * rejected before processing, so retrying — including the broadcast
+ * POST — is safe.
+ */
+const RATE_LIMIT_DELAYS_MS = [600, 1500, 3000, 6000];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRateLimitRetry(
+  url: string,
+  init?: { method?: string; body?: string },
+): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(url, init);
+    const baseDelay = RATE_LIMIT_DELAYS_MS[attempt];
+    if (response.status !== 429 || baseDelay === undefined) {
+      return response;
+    }
+    await sleep(baseDelay * (0.75 + Math.random() * 0.5));
+  }
+}
+
 export class ElectrsClient {
   constructor(private readonly network: NuxNetwork) {}
 
   private async getText(path: string): Promise<string> {
-    const response = await fetch(`${this.network.electrsBaseUrl}${path}`);
+    const response = await fetchWithRateLimitRetry(
+      `${this.network.electrsBaseUrl}${path}`,
+    );
     if (!response.ok) {
       throw new Error(`electrs ${path} failed with HTTP ${response.status}`);
     }
@@ -152,10 +183,13 @@ export class ElectrsClient {
 
   /** Broadcast a signed raw transaction (hex). Returns the txid. */
   async broadcastTx(rawTxHex: string): Promise<string> {
-    const response = await fetch(`${this.network.electrsBaseUrl}/tx`, {
-      method: "POST",
-      body: rawTxHex,
-    });
+    const response = await fetchWithRateLimitRetry(
+      `${this.network.electrsBaseUrl}/tx`,
+      {
+        method: "POST",
+        body: rawTxHex,
+      },
+    );
     if (!response.ok) {
       throw new Error(`electrs broadcast failed with HTTP ${response.status}`);
     }
