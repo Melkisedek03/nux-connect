@@ -55,6 +55,7 @@
       }
       document.getElementById("detect").addEventListener("click", () => {
         log(window.nux ? "window.nux detected (isNuxConnect=" + window.nux.isNuxConnect + ")" : "window.nux NOT detected — is the extension installed?");
+        watchEvents();
       });
       async function call(method) {
         if (!window.nux) { log("No provider."); return; }
@@ -69,11 +70,19 @@
       document.getElementById("connect").addEventListener("click", () => call("nux_requestAccounts"));
       document.getElementById("accounts").addEventListener("click", () => call("nux_getAccounts"));
       document.getElementById("balance").addEventListener("click", () => call("nux_getBalance"));
-      if (window.nux) {
+      let watching = false;
+      function watchEvents() {
+        if (watching || !window.nux) return;
+        watching = true;
         window.nux.on("accountsChanged", (accounts) => {
           log("event accountsChanged -> " + JSON.stringify(accounts));
         });
       }
+      // The provider may be injected before or after this script runs;
+      // register immediately if possible, and again when it announces
+      // itself or when the user clicks Detect.
+      window.addEventListener("nux#initialized", watchEvents);
+      watchEvents();
     </script>
   </body>
 </html>
