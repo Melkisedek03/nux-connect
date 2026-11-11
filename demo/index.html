@@ -36,9 +36,10 @@
       Minimal test page for the provider: it detects the injected
       <code>window.nux</code> provider, asks to connect
       (<code>nux_requestAccounts</code>, which opens the extension's
-      approval window), and then reads the network, the accounts, and the
-      balance. Serve this folder with any static file server and open it
-      in a browser where the extension is installed.
+      approval window), reads the network, the accounts, and the balance,
+      and exercises message signing and a small self-send — each behind
+      its own approval. Serve this folder with any static file server
+      and open it in a browser where the extension is installed.
     </p>
     <p>
       <button id="detect">Detect provider</button>
@@ -46,6 +47,8 @@
       <button id="connect">Connect</button>
       <button id="accounts">Get accounts</button>
       <button id="balance">Get balance</button>
+      <button id="signMessage">Sign message</button>
+      <button id="sendSelf">Send 1,000 nusan to self</button>
     </p>
     <pre id="log">Log ready.</pre>
     <script>
@@ -57,10 +60,14 @@
         log(window.nux ? "window.nux detected (isNuxConnect=" + window.nux.isNuxConnect + ")" : "window.nux NOT detected — is the extension installed?");
         watchEvents();
       });
-      async function call(method) {
+      let lastAccounts = [];
+      async function call(method, params) {
         if (!window.nux) { log("No provider."); return; }
         try {
-          const result = await window.nux.request({ method });
+          const result = await window.nux.request({ method, params });
+          if (method === "nux_requestAccounts" || method === "nux_getAccounts") {
+            lastAccounts = Array.isArray(result) ? result : [];
+          }
           log(method + " -> " + JSON.stringify(result));
         } catch (e) {
           log(method + " rejected: code=" + e.code + " message=" + e.message);
@@ -70,6 +77,15 @@
       document.getElementById("connect").addEventListener("click", () => call("nux_requestAccounts"));
       document.getElementById("accounts").addEventListener("click", () => call("nux_getAccounts"));
       document.getElementById("balance").addEventListener("click", () => call("nux_getBalance"));
+      document.getElementById("signMessage").addEventListener("click", () =>
+        call("nux_signMessage", "NUX Connect demo: I control this address."));
+      document.getElementById("sendSelf").addEventListener("click", () => {
+        if (lastAccounts.length === 0) {
+          log("Connect first — Send targets your own connected address.");
+          return;
+        }
+        call("nux_sendTransaction", { to: lastAccounts[0], amount: 1000 });
+      });
       let watching = false;
       function watchEvents() {
         if (watching || !window.nux) return;
