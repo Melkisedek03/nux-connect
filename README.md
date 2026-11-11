@@ -148,8 +148,14 @@ opens a dedicated approval window; approving records the origin in a
 connected-origins store, answers with the accounts, and emits
 `accountsChanged` to the origin's tabs, while rejecting or closing the
 window settles the request with error 4001. The popup lists connected
-sites and can disconnect them. The transaction engine and signing
-arrive in later milestones, one pull request each.
+sites and can disconnect them. Milestone 4 adds transactions and
+signing: `nux_sendTransaction` builds payments from the wallet's
+confirmed UTXOs (largest-first selection, dust change folded into the
+fee) and broadcasts after approval; `nux_signMessage` signs in Nusacoin
+Core's legacy format; `nux_signPsbt` and `nux_sendPsbt` sign PSBTs
+after ownership and implied-fee-rate guard checks — each method behind
+an approval window showing the exact details that will execute. The
+incoming-coin notification watcher arrives in a later milestone.
 
 A derivation verification harness cross-checks the key engine against
 an independent implementation and the test vectors published in BIP84:

@@ -4,16 +4,18 @@
 // - Route provider requests coming from content scripts, enforcing the
 //   origin gating: read methods answer only for connected origins, and
 //   account data is only exposed while the vault is unlocked.
-// - Own connection approvals: `nux_requestAccounts` opens the approval
-//   window, and only an explicit approval there records the origin in
-//   the connected-origins store (src/lib/connections.ts) and answers
-//   with the accounts. Closing the window or rejecting settles the
-//   request with error 4001, as EIP-1193 prescribes.
+// - Own user approvals. Every value-moving or signing method
+//   (nux_requestAccounts, nux_sendTransaction, nux_signMessage,
+//   nux_signPsbt, nux_sendPsbt) opens the approval window with an
+//   exact, human-readable summary of what is being asked; only an
+//   explicit approval there executes, records state, and answers.
+//   Rejecting — or closing the window — settles the request with error
+//   4001, as EIP-1193 prescribes.
 // - Own the vault lifecycle (create, import, unlock, lock, auto-lock)
 //   on behalf of the popup. Secrets never leave this context: the popup
 //   receives the freshly generated mnemonic exactly once (at creation)
-//   and addresses afterwards; pages receive only what the provider
-//   methods define.
+//   and addresses afterwards; signing keys are derived transiently from
+//   the session-held mnemonic at approval time and never stored.
 // - Fan provider events (accountsChanged) out to the tabs an origin is
 //   known to run in. Events are a courtesy only: every read is still
 //   gated against the stored state, so a missed event can never leak
@@ -30,9 +32,10 @@ import {
   listConnections,
 } from "../lib/connections";
 import { ElectrsClient } from "../lib/electrs";
-import { primaryAddress } from "../lib/keys";
+import { derivePrivateKey, primaryAddress } from "../lib/keys";
 import { DEFAULT_NETWORK_ID, getNetwork, type NuxNetwork } from "../lib/networks";
 import {
+  ERROR_INVALID_PARAMS,
   ERROR_UNAUTHORIZED,
   ERROR_UNSUPPORTED_METHOD,
   ERROR_USER_REJECTED,
@@ -40,6 +43,17 @@ import {
   isKnownMethod,
   type ProviderRequest,
 } from "../lib/rpc";
+import {
+  MAX_FEE_RATE,
+  TxError,
+  buildSendTransaction,
+  finalizeToHex,
+  signMessageLegacy,
+  signWalletPsbt,
+  summarizePsbt,
+  type PsbtSummary,
+  type SendDraft,
+} from "../lib/tx";
 import {
   VaultError,
   checkAutoLock,
@@ -49,11 +63,14 @@ import {
   isUnlocked,
   loadAccountPublics,
   lockVault,
+  mnemonicFromSession,
   touchSession,
   unlockVault,
 } from "../lib/vault";
+import { discoverWallet, ownershipMap } from "../lib/wallet";
 
 const POLL_ALARM = "nux-connect-poll";
+const ERROR_SERVER = -32000;
 
 function activeNetwork(): NuxNetwork {
   // Testnet-first: the active network is the default network. Network
@@ -153,31 +170,44 @@ async function emitAccountsChangedEverywhere(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Connection approvals
+// Approvals
 //
 // A pending approval lives only in this worker's memory: it is the
-// promise behind one `nux_requestAccounts` call, plus the approval
-// window that will settle it. If the worker restarts while a window is
-// open, the promise is gone with it; the window then reports that the
-// request is no longer pending and the page can simply ask again. The
-// durable fact — which origins are connected — is the storage record,
-// never this map.
+// promise behind one provider call, the approval window that will
+// settle it, and the exact payload the user is shown (a built send
+// draft, a message, a summarized PSBT). What is approved is what
+// executes — payloads are built and validated BEFORE the window opens,
+// and execution at approval time re-derives nothing the user did not
+// see. If the worker restarts while a window is open, the promise is
+// gone with it; the window then reports that the request is no longer
+// pending and the page can simply ask again.
 
-interface PendingApproval {
+type ApprovalKind = "connect" | "send" | "signMessage" | "signPsbt" | "sendPsbt";
+
+type Ownership = Map<string, { chain: 0 | 1; index: number }>;
+
+interface PendingRequest {
   id: string;
   origin: string;
+  kind: ApprovalKind;
   windowId: number | null;
   settled: boolean;
-  resolve: (accounts: string[]) => void;
+  resolve: (value: unknown) => void;
   reject: (error: ProviderRpcError) => void;
+  sendDraft?: SendDraft;
+  sendOwnership?: Ownership;
+  message?: string;
+  psbtBase64?: string;
+  psbtSummary?: PsbtSummary;
+  psbtOwnership?: Ownership;
 }
 
-const pendingById = new Map<string, PendingApproval>();
-const pendingByOrigin = new Map<string, PendingApproval>();
+const pendingById = new Map<string, PendingRequest>();
+const pendingByOrigin = new Map<string, PendingRequest>();
 
-function settleApproval(
-  pending: PendingApproval,
-  outcome: { accounts: string[] } | { error: ProviderRpcError },
+function settleRequest(
+  pending: PendingRequest,
+  outcome: { value: unknown } | { error: ProviderRpcError },
   closeWindow: boolean,
 ): void {
   if (pending.settled) return;
@@ -186,8 +216,8 @@ function settleApproval(
   if (pendingByOrigin.get(pending.origin) === pending) {
     pendingByOrigin.delete(pending.origin);
   }
-  if ("accounts" in outcome) {
-    pending.resolve(outcome.accounts);
+  if ("value" in outcome) {
+    pending.resolve(outcome.value);
   } else {
     pending.reject(outcome.error);
   }
@@ -198,8 +228,8 @@ function settleApproval(
   }
 }
 
-function rejectApproval(pending: PendingApproval, closeWindow: boolean): void {
-  settleApproval(
+function rejectRequest(pending: PendingRequest, closeWindow: boolean): void {
+  settleRequest(
     pending,
     {
       error: new ProviderRpcError(
@@ -211,56 +241,32 @@ function rejectApproval(pending: PendingApproval, closeWindow: boolean): void {
   );
 }
 
-async function handleRequestAccounts(
+interface ApprovalExtras {
+  sendDraft?: SendDraft;
+  sendOwnership?: Ownership;
+  message?: string;
+  psbtBase64?: string;
+  psbtSummary?: PsbtSummary;
+  psbtOwnership?: Ownership;
+}
+
+async function openApprovalWindow(
   origin: string,
+  kind: ApprovalKind,
   tabId: number | undefined,
-): Promise<string[]> {
-  if (!(await hasVault())) {
-    throw new ProviderRpcError(
-      ERROR_UNAUTHORIZED,
-      "No wallet exists yet. Create one from the extension popup first.",
-    );
-  }
-
-  // One approval per origin at a time: a repeated call joins the
-  // pending request instead of stacking approval windows.
-  const existing = pendingByOrigin.get(origin);
-  if (existing) {
-    if (existing.windowId !== null) {
-      void chrome.windows
-        .update(existing.windowId, { focused: true })
-        .catch(() => {});
-    }
-    return new Promise<string[]>((resolve, reject) => {
-      const priorResolve = existing.resolve;
-      const priorReject = existing.reject;
-      existing.resolve = (accounts) => {
-        priorResolve(accounts);
-        resolve(accounts);
-      };
-      existing.reject = (error) => {
-        priorReject(error);
-        reject(error);
-      };
-    });
-  }
-
-  // Fast path: already connected and unlocked needs no window.
-  const accounts = await currentAccountsFor(origin);
-  if (accounts.length > 0) {
-    await touchSession();
-    return accounts;
-  }
-
-  const pending: PendingApproval = {
+  extras: ApprovalExtras,
+): Promise<unknown> {
+  const pending: PendingRequest = {
     id: crypto.randomUUID(),
     origin,
+    kind,
     windowId: null,
     settled: false,
     resolve: () => {},
     reject: () => {},
+    ...extras,
   };
-  const promise = new Promise<string[]>((resolve, reject) => {
+  const promise = new Promise<unknown>((resolve, reject) => {
     pending.resolve = resolve;
     pending.reject = reject;
   });
@@ -278,25 +284,304 @@ async function handleRequestAccounts(
     });
     pending.windowId = win?.id ?? null;
     if (pending.settled && pending.windowId !== null) {
-      // Settled while the window was being created (e.g. resolved by a
-      // duplicate path); do not leave a stray window behind.
+      // Settled while the window was being created; do not leave a
+      // stray window behind.
       void chrome.windows.remove(pending.windowId).catch(() => {});
     }
   } catch {
-    rejectApproval(pending, false);
+    rejectRequest(pending, false);
   }
   return promise;
+}
+
+function busyError(): ProviderRpcError {
+  return new ProviderRpcError(
+    ERROR_SERVER,
+    "Another request from this site is awaiting approval.",
+  );
 }
 
 chrome.windows.onRemoved.addListener((windowId) => {
   for (const pending of pendingById.values()) {
     if (pending.windowId === windowId) {
       // Closing the approval window without a decision is a rejection.
-      rejectApproval(pending, false);
+      rejectRequest(pending, false);
       break;
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// Request preparation. Each builder validates fully and produces the
+// exact payload the approval window will show; nothing here moves
+// value or signs.
+
+async function requireConnectedAndWallet(origin: string): Promise<void> {
+  if (!(await isOriginConnected(origin))) {
+    throw new ProviderRpcError(
+      ERROR_UNAUTHORIZED,
+      "This site is not connected.",
+    );
+  }
+  if (!(await hasVault())) {
+    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
+  }
+}
+
+function txErrorToRpc(error: TxError): ProviderRpcError {
+  return new ProviderRpcError(
+    error.kind === "invalid" ? ERROR_INVALID_PARAMS : ERROR_SERVER,
+    error.message,
+  );
+}
+
+/** A free-text string parameter: bare string, [string], or {key: string}. */
+function extractStringParam(
+  params: unknown,
+  key: string,
+): string | null {
+  if (typeof params === "string") return params;
+  if (Array.isArray(params)) {
+    return typeof params[0] === "string" ? params[0] : null;
+  }
+  if (params && typeof params === "object") {
+    const value = (params as Record<string, unknown>)[key];
+    return typeof value === "string" ? value : null;
+  }
+  return null;
+}
+
+function parseAmountParam(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && /^[0-9]+$/.test(value.trim())) {
+    return Number.parseInt(value.trim(), 10);
+  }
+  throw new ProviderRpcError(
+    ERROR_INVALID_PARAMS,
+    "Amount must be an integer number of nusan.",
+  );
+}
+
+function parseSendParams(params: unknown): {
+  to: string;
+  amount: number;
+  feeRate?: number;
+} {
+  let record: Record<string, unknown> = {};
+  if (Array.isArray(params)) {
+    record = { to: params[0], amount: params[1], feeRate: params[2] };
+  } else if (params && typeof params === "object") {
+    record = params as Record<string, unknown>;
+  }
+  if (typeof record.to !== "string" || record.to.length === 0) {
+    throw new ProviderRpcError(
+      ERROR_INVALID_PARAMS,
+      "A recipient address (to) is required.",
+    );
+  }
+  const amount = parseAmountParam(record.amount);
+  let feeRate: number | undefined;
+  if (record.feeRate !== undefined && record.feeRate !== null) {
+    // Locked rule: a dApp-supplied fee rate is accepted only inside
+    // 1..MAX_FEE_RATE nusan/vbyte; anything else is -32602.
+    if (
+      typeof record.feeRate !== "number" ||
+      !Number.isInteger(record.feeRate) ||
+      record.feeRate < 1 ||
+      record.feeRate > MAX_FEE_RATE
+    ) {
+      throw new ProviderRpcError(
+        ERROR_INVALID_PARAMS,
+        `feeRate must be an integer between 1 and ${MAX_FEE_RATE} nusan/vbyte.`,
+      );
+    }
+    feeRate = record.feeRate;
+  }
+  return { to: record.to, amount, feeRate };
+}
+
+async function handleRequestAccounts(
+  origin: string,
+  tabId: number | undefined,
+): Promise<unknown> {
+  if (!(await hasVault())) {
+    throw new ProviderRpcError(
+      ERROR_UNAUTHORIZED,
+      "No wallet exists yet. Create one from the extension popup first.",
+    );
+  }
+
+  // One approval per origin at a time. A repeated connection request
+  // joins the pending one instead of stacking windows; any other kind
+  // of pending request makes this one wait its turn.
+  const existing = pendingByOrigin.get(origin);
+  if (existing) {
+    if (existing.kind !== "connect") throw busyError();
+    if (existing.windowId !== null) {
+      void chrome.windows
+        .update(existing.windowId, { focused: true })
+        .catch(() => {});
+    }
+    return new Promise<unknown>((resolve, reject) => {
+      const priorResolve = existing.resolve;
+      const priorReject = existing.reject;
+      existing.resolve = (value) => {
+        priorResolve(value);
+        resolve(value);
+      };
+      existing.reject = (error) => {
+        priorReject(error);
+        reject(error);
+      };
+    });
+  }
+
+  // Fast path: already connected and unlocked needs no window.
+  const accounts = await currentAccountsFor(origin);
+  if (accounts.length > 0) {
+    await touchSession();
+    return accounts;
+  }
+
+  return openApprovalWindow(origin, "connect", tabId, {});
+}
+
+async function handleSendTransaction(
+  origin: string,
+  params: unknown,
+  tabId: number | undefined,
+): Promise<unknown> {
+  await requireConnectedAndWallet(origin);
+  if (pendingByOrigin.has(origin)) throw busyError();
+  const { to, amount, feeRate: givenRate } = parseSendParams(params);
+
+  const network = activeNetwork();
+  const publics = await loadAccountPublics();
+  if (!publics) {
+    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
+  }
+  const client = new ElectrsClient(network);
+  let state;
+  try {
+    state = await discoverWallet(client, publics[network.id], network);
+  } catch (error) {
+    throw new ProviderRpcError(
+      ERROR_SERVER,
+      `Could not read the wallet's UTXOs: ${
+        error instanceof Error ? error.message : "network error"
+      }`,
+    );
+  }
+  const networkRate = await client.getFeeRate();
+  const feeRate =
+    givenRate ??
+    Math.min(MAX_FEE_RATE, Math.max(1, Math.round(networkRate)));
+  let draft: SendDraft;
+  try {
+    draft = buildSendTransaction({
+      utxos: state.utxos,
+      to,
+      amount,
+      feeRate,
+      network,
+      changeAddress: state.changeAddress.address,
+    });
+  } catch (error) {
+    if (error instanceof TxError) throw txErrorToRpc(error);
+    throw error;
+  }
+  return openApprovalWindow(origin, "send", tabId, {
+    sendDraft: draft,
+    sendOwnership: ownershipMap(state),
+  });
+}
+
+async function handleSignMessage(
+  origin: string,
+  params: unknown,
+  tabId: number | undefined,
+): Promise<unknown> {
+  await requireConnectedAndWallet(origin);
+  if (pendingByOrigin.has(origin)) throw busyError();
+  const message = extractStringParam(params, "message");
+  if (message === null || message.length === 0) {
+    throw new ProviderRpcError(
+      ERROR_INVALID_PARAMS,
+      "A non-empty message string is required.",
+    );
+  }
+  if (message.length > 8192) {
+    throw new ProviderRpcError(
+      ERROR_INVALID_PARAMS,
+      "The message is too long to sign.",
+    );
+  }
+  return openApprovalWindow(origin, "signMessage", tabId, { message });
+}
+
+async function handlePsbtRequest(
+  origin: string,
+  params: unknown,
+  tabId: number | undefined,
+  broadcast: boolean,
+): Promise<unknown> {
+  await requireConnectedAndWallet(origin);
+  if (pendingByOrigin.has(origin)) throw busyError();
+  const psbtBase64 = extractStringParam(params, "psbt");
+  if (psbtBase64 === null || psbtBase64.length === 0) {
+    throw new ProviderRpcError(
+      ERROR_INVALID_PARAMS,
+      "A base64 PSBT is required.",
+    );
+  }
+  const network = activeNetwork();
+  const publics = await loadAccountPublics();
+  if (!publics) {
+    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
+  }
+  const client = new ElectrsClient(network);
+  let state;
+  try {
+    state = await discoverWallet(client, publics[network.id], network);
+  } catch (error) {
+    throw new ProviderRpcError(
+      ERROR_SERVER,
+      `Could not read the wallet state: ${
+        error instanceof Error ? error.message : "network error"
+      }`,
+    );
+  }
+  let summary: PsbtSummary;
+  try {
+    summary = summarizePsbt(psbtBase64, network).summary;
+  } catch (error) {
+    if (error instanceof TxError) throw txErrorToRpc(error);
+    throw error;
+  }
+  const owned = ownershipMap(state);
+  for (const input of summary.inputs) {
+    if (!input.address || !owned.has(input.address)) {
+      // Ownership is verified BEFORE approval: the wallet signs only
+      // for its own addresses, without exception.
+      throw new ProviderRpcError(
+        ERROR_INVALID_PARAMS,
+        "The PSBT spends an input that does not belong to this wallet.",
+      );
+    }
+  }
+  if (summary.feeRate > MAX_FEE_RATE) {
+    // Locked rule: the recalculated implied fee rate is capped.
+    throw new ProviderRpcError(
+      ERROR_INVALID_PARAMS,
+      `The PSBT's implied fee rate of ${summary.feeRate} nusan/vbyte exceeds the maximum of ${MAX_FEE_RATE}.`,
+    );
+  }
+  return openApprovalWindow(origin, broadcast ? "sendPsbt" : "signPsbt", tabId, {
+    psbtBase64,
+    psbtSummary: summary,
+    psbtOwnership: owned,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Provider requests
@@ -356,16 +641,16 @@ async function handleProviderRequest(
     }
 
     case "nux_sendTransaction":
+      return handleSendTransaction(origin, request.params, tabId);
+
     case "nux_signMessage":
+      return handleSignMessage(origin, request.params, tabId);
+
     case "nux_signPsbt":
+      return handlePsbtRequest(origin, request.params, tabId, false);
+
     case "nux_sendPsbt":
-      // Known methods whose implementation belongs to a later milestone
-      // (transactions and signing, after connection approvals).
-      // Rejected honestly instead of silently failing.
-      throw new ProviderRpcError(
-        ERROR_UNSUPPORTED_METHOD,
-        `Method not implemented yet in this milestone: ${request.method}`,
-      );
+      return handlePsbtRequest(origin, request.params, tabId, true);
 
     default:
       if (isKnownMethod(request.method)) {
@@ -378,6 +663,55 @@ async function handleProviderRequest(
         ERROR_UNSUPPORTED_METHOD,
         `Unsupported method: ${request.method}`,
       );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Approval execution. Runs only after an explicit approval, with the
+// exact payload the user was shown.
+
+async function executeApproval(pending: PendingRequest): Promise<unknown> {
+  const network = activeNetwork();
+  switch (pending.kind) {
+    case "connect": {
+      const address = await walletPrimaryAddress();
+      if (!address) throw new Error("No wallet exists yet.");
+      await connectOrigin(pending.origin, [address]);
+      await touchSession();
+      return [address];
+    }
+    case "send": {
+      if (!pending.sendDraft || !pending.sendOwnership) {
+        throw new Error("The send request is incomplete.");
+      }
+      const mnemonic = await mnemonicFromSession();
+      const { psbt } = summarizePsbt(pending.sendDraft.psbtBase64, network);
+      signWalletPsbt(psbt, mnemonic, network, pending.sendOwnership);
+      const hex = finalizeToHex(psbt);
+      return new ElectrsClient(network).broadcastTx(hex);
+    }
+    case "signMessage": {
+      if (pending.message === undefined) {
+        throw new Error("The sign request is incomplete.");
+      }
+      const mnemonic = await mnemonicFromSession();
+      const key = derivePrivateKey(mnemonic, network, 0, 0);
+      return signMessageLegacy(pending.message, key, network);
+    }
+    case "signPsbt":
+    case "sendPsbt": {
+      if (!pending.psbtBase64 || !pending.psbtOwnership) {
+        throw new Error("The PSBT request is incomplete.");
+      }
+      const mnemonic = await mnemonicFromSession();
+      const { psbt } = summarizePsbt(pending.psbtBase64, network);
+      signWalletPsbt(psbt, mnemonic, network, pending.psbtOwnership);
+      if (pending.kind === "signPsbt") {
+        return psbt.toBase64();
+      }
+      const hex = finalizeToHex(psbt);
+      return new ElectrsClient(network).broadcastTx(hex);
+    }
   }
 }
 
@@ -434,20 +768,25 @@ async function handleGetStatus(): Promise<InternalStatus> {
 interface ApprovalRequestView {
   id: string;
   origin: string;
+  kind: ApprovalKind;
   network: NuxNetwork["id"];
   networkLabel: string;
   hasVault: boolean;
   unlocked: boolean;
   alreadyConnected: boolean;
-  /** The address that will be shared; shown only while unlocked. */
+  /** The primary address; shown only while unlocked. */
   address: string | null;
+  /** Kind-specific summaries; present only while unlocked. */
+  sendSummary?: SendDraft["summary"];
+  message?: string;
+  psbtSummary?: PsbtSummary;
 }
 
 async function handleGetApprovalRequest(id: string): Promise<ApprovalRequestView> {
   const pending = pendingById.get(id);
   if (!pending) {
     throw new ProviderRpcError(
-      -32000,
+      ERROR_SERVER,
       "This approval request is no longer pending.",
     );
   }
@@ -455,28 +794,32 @@ async function handleGetApprovalRequest(id: string): Promise<ApprovalRequestView
   return {
     id: pending.id,
     origin: pending.origin,
+    kind: pending.kind,
     network: activeNetwork().id,
     networkLabel: activeNetwork().label,
     hasVault: await hasVault(),
     unlocked,
     alreadyConnected: await isOriginConnected(pending.origin),
     address: unlocked ? await walletPrimaryAddress() : null,
+    sendSummary: unlocked ? pending.sendDraft?.summary : undefined,
+    message: unlocked ? pending.message : undefined,
+    psbtSummary: unlocked ? pending.psbtSummary : undefined,
   };
 }
 
 async function handleResolveApproval(
   id: string,
   approved: boolean,
-): Promise<{ resolved: true }> {
+): Promise<{ resolved: true; execError?: string }> {
   const pending = pendingById.get(id);
   if (!pending) {
     throw new ProviderRpcError(
-      -32000,
+      ERROR_SERVER,
       "This approval request is no longer pending.",
     );
   }
   if (!approved) {
-    rejectApproval(pending, true);
+    rejectRequest(pending, true);
     return { resolved: true };
   }
   if (!(await isUnlocked())) {
@@ -484,15 +827,26 @@ async function handleResolveApproval(
     // approval page falls back to its unlock form on this error.
     throw new ProviderRpcError(ERROR_UNAUTHORIZED, "The wallet is locked.");
   }
-  const address = await walletPrimaryAddress();
-  if (!address) {
-    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
+  try {
+    const value = await executeApproval(pending);
+    settleRequest(pending, { value }, true);
+    if (pending.kind === "connect") {
+      await emitAccountsChanged(pending.origin);
+    }
+    return { resolved: true };
+  } catch (error) {
+    // Execution failed (e.g. the network rejected the broadcast): the
+    // waiting page call settles with the failure, and the approval
+    // window shows it before closing.
+    const message =
+      error instanceof Error ? error.message : "Execution failed.";
+    settleRequest(
+      pending,
+      { error: new ProviderRpcError(ERROR_SERVER, message) },
+      true,
+    );
+    return { resolved: true, execError: message };
   }
-  await connectOrigin(pending.origin, [address]);
-  await touchSession();
-  settleApproval(pending, { accounts: [address] }, true);
-  await emitAccountsChanged(pending.origin);
-  return { resolved: true };
 }
 
 function isExtensionPage(sender: chrome.runtime.MessageSender): boolean {
@@ -622,7 +976,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else if (error instanceof VaultError) {
         sendResponse({
           ok: false,
-          error: { code: -32000, message: error.message },
+          error: { code: ERROR_SERVER, message: error.message },
         });
       } else {
         sendResponse({

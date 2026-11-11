@@ -138,3 +138,50 @@ export function primaryAddress(
 ): string {
   return deriveAddress(accountPublic, network, 0, 0);
 }
+
+/** A derived key pair at one chain/index position. Secret-bearing. */
+export interface DerivedKey {
+  privateKey: Uint8Array;
+  publicKey: Uint8Array;
+}
+
+/**
+ * Derive the private key for one chain/index position from a mnemonic.
+ * Signing code (Milestone 4) calls this transiently, per signature,
+ * while the vault is unlocked; the result must never be stored or sent
+ * anywhere. The full path is m/84'/<coinType>'/0'/<chain>/<index>, the
+ * private counterpart of deriveAddress.
+ */
+export function derivePrivateKey(
+  mnemonic: string,
+  network: NuxNetwork,
+  chain: 0 | 1,
+  index: number,
+): DerivedKey {
+  const seed = bip39.mnemonicToSeedSync(normalizeMnemonic(mnemonic));
+  const root = bip32.fromSeed(seed, toBitcoinJsNetwork(network));
+  const node = root.derivePath(
+    `m/84'/${network.coinType}'/0'/${chain}/${index}`,
+  );
+  if (!node.privateKey) {
+    throw new Error("Private key derivation failed.");
+  }
+  return { privateKey: node.privateKey, publicKey: node.publicKey };
+}
+
+/**
+ * A bitcoinjs-lib compatible signer backed by one derived key (the
+ * v7 Signer shape is plain Uint8Array in and out). The Psbt API accepts
+ * this shape directly, so no separate signing library is needed.
+ */
+export interface NuxSigner {
+  publicKey: Uint8Array;
+  sign: (hash: Uint8Array) => Uint8Array;
+}
+
+export function toSigner(key: DerivedKey): NuxSigner {
+  return {
+    publicKey: key.publicKey,
+    sign: (hash: Uint8Array) => ecc.sign(hash, key.privateKey),
+  };
+}

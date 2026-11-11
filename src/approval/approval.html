@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>NUX Connect — Connection request</title>
+    <title>NUX Connect — Approval</title>
     <style>
       body {
         font-family: system-ui, sans-serif;
@@ -81,11 +81,21 @@
         font-size: 13px;
         word-break: break-all;
       }
-      .address {
+      dl { margin: 10px 0; font-size: 13px; }
+      dt { color: #40695a; margin-top: 8px; }
+      dd { margin: 2px 0 0; font-weight: 600; word-break: break-all; }
+      .mono { font-family: ui-monospace, monospace; font-size: 12px; }
+      .message {
+        background: #fff;
+        border: 1px solid #b9d4c7;
+        border-radius: 8px;
+        padding: 10px 12px;
         font-family: ui-monospace, monospace;
-        font-size: 12px;
-        word-break: break-all;
-        font-weight: 600;
+        font-size: 12.5px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 220px;
+        overflow-y: auto;
       }
       .note {
         font-size: 12px;
@@ -104,11 +114,11 @@
     </header>
 
     <section id="viewLoading">
-      <p>Loading the connection request…</p>
+      <p>Loading the request…</p>
     </section>
 
     <section id="viewError" hidden>
-      <h2>Connection request</h2>
+      <h2>Request</h2>
       <p id="errorMessage">This request can no longer be handled.</p>
       <div class="actions">
         <button id="errorClose" type="button">Close</button>
@@ -117,7 +127,7 @@
 
     <section id="viewUnlock" hidden>
       <h2>Unlock to continue</h2>
-      <p>This site asks to connect to your wallet:</p>
+      <p>This site asks for an action from your wallet:</p>
       <p class="origin" id="unlockOrigin">—</p>
       <label>
         Password
@@ -134,8 +144,8 @@
       <h2 id="connectTitle">A site wants to connect</h2>
       <p class="origin" id="connectOrigin">—</p>
       <h2>Address that will be shared</h2>
-      <p class="address" id="connectAddress">—</p>
-      <p id="connectNote">
+      <p class="mono" id="connectAddress">—</p>
+      <p>
         The site will be able to see this address and its balances, and to
         ask you to approve transactions. It cannot move funds without your
         approval, and you can disconnect it at any time from the wallet
@@ -143,10 +153,71 @@
       </p>
       <p class="error" id="connectError"></p>
       <div class="actions">
-        <button id="connectSubmit" type="button">Connect</button>
-        <button id="connectReject" type="button" class="secondary">Reject</button>
+        <button id="connectSubmit" type="button" class="js-approve">Connect</button>
+        <button type="button" class="secondary js-reject">Reject</button>
       </div>
       <p class="note" id="connectNetworkNote">Network: Nusacoin Testnet (testnet).</p>
+    </section>
+
+    <section id="viewSend" hidden>
+      <h2>Review this payment</h2>
+      <p class="origin" id="sendOrigin">—</p>
+      <dl>
+        <dt>To</dt>
+        <dd class="mono" id="sendTo">—</dd>
+        <dt>Amount (nusan)</dt>
+        <dd id="sendAmount">—</dd>
+        <dt>Network fee (nusan)</dt>
+        <dd id="sendFee">—</dd>
+        <dt>Total (nusan)</dt>
+        <dd id="sendTotal">—</dd>
+        <dt>Change back to this wallet (nusan)</dt>
+        <dd id="sendChange">—</dd>
+      </dl>
+      <p class="error" id="sendError"></p>
+      <div class="actions">
+        <button type="button" class="js-approve">Send</button>
+        <button type="button" class="secondary js-reject">Reject</button>
+      </div>
+      <p class="note" id="sendNetworkNote">Network: Nusacoin Testnet (testnet).</p>
+    </section>
+
+    <section id="viewSignMessage" hidden>
+      <h2>Sign this message?</h2>
+      <p class="origin" id="signOrigin">—</p>
+      <div class="message" id="signMessageText">—</div>
+      <p>
+        Signing proves this address is yours. It does not move funds and
+        cannot be used to spend. Sign only messages you understand and
+        expect.
+      </p>
+      <p class="error" id="signError"></p>
+      <div class="actions">
+        <button type="button" class="js-approve">Sign</button>
+        <button type="button" class="secondary js-reject">Reject</button>
+      </div>
+      <p class="note" id="signNetworkNote">Network: Nusacoin Testnet (testnet).</p>
+    </section>
+
+    <section id="viewPsbt" hidden>
+      <h2 id="psbtTitle">Sign this PSBT?</h2>
+      <p class="origin" id="psbtOrigin">—</p>
+      <dl>
+        <dt>Total in (nusan)</dt>
+        <dd id="psbtTotalIn">—</dd>
+        <dt>Total out (nusan)</dt>
+        <dd id="psbtTotalOut">—</dd>
+        <dt>Fee (nusan)</dt>
+        <dd id="psbtFee">—</dd>
+        <dt>Outputs</dt>
+        <dd class="mono" id="psbtOutputs">—</dd>
+      </dl>
+      <p class="error" id="psbtError"></p>
+      <div class="actions">
+        <button type="button" class="js-approve" id="psbtSubmit">Sign</button>
+        <button type="button" class="secondary js-reject">Reject</button>
+      </div>
+      <p class="note" id="psbtNetworkNote">Network: Nusacoin Testnet (testnet).</p>
     </section>
 
     <script type="module" src="approval.js"></script>
