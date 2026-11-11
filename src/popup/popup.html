@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>NUX Connect</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 16px;
+        width: 300px;
+        color: #10201a;
+        background: #eaf4ef;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0;
+        color: #0a5c42;
+      }
+      .badge {
+        background: #d97706;
+        color: #fff;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+      dl {
+        margin: 14px 0;
+        font-size: 13px;
+      }
+      dt {
+        color: #40695a;
+        margin-top: 8px;
+      }
+      dd {
+        margin: 2px 0 0;
+        font-weight: 600;
+        word-break: break-all;
+      }
+      .note {
+        font-size: 12px;
+        color: #40695a;
+        border-top: 1px solid #cfe3da;
+        padding-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>NUX Connect</h1>
+      <span class="badge" id="networkBadge">TESTNET</span>
+    </header>
+    <dl>
+      <dt>Network</dt>
+      <dd id="networkName">Loading…</dd>
+      <dt>Chain tip height</dt>
+      <dd id="tipHeight">—</dd>
+      <dt>Fee rate (nusan/vbyte)</dt>
+      <dd id="feeRate">—</dd>
+      <dt>Wallet</dt>
+      <dd id="walletStatus">No wallet yet</dd>
+    </dl>
+    <p class="note" id="note">
+      Scaffold build. Wallet creation arrives in the next milestone.
+      This build talks to testnet only; mainnet is locked.
+    </p>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>NUX Connect — Provider Smoke Test</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 24px;
+        max-width: 640px;
+        color: #10201a;
+      }
+      h1 { color: #0a5c42; font-size: 20px; }
+      button {
+        margin-right: 8px;
+        padding: 8px 14px;
+        border: 0;
+        border-radius: 8px;
+        background: #0a5c42;
+        color: #fff;
+        cursor: pointer;
+      }
+      pre {
+        background: #062a20;
+        color: #eaf4ef;
+        padding: 12px;
+        border-radius: 8px;
+        min-height: 120px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>NUX Connect — Provider Smoke Test</h1>
+    <p>
+      Minimal page for the scaffold milestone: it detects the injected
+      <code>window.nux</code> provider and calls <code>nux_getNetwork</code>.
+      Serve this folder with any static file server and open it in a
+      browser where the extension is installed.
+    </p>
+    <p>
+      <button id="detect">Detect provider</button>
+      <button id="network">Get network</button>
+      <button id="accounts">Get accounts</button>
+    </p>
+    <pre id="log">Log ready.</pre>
+    <script>
+      const logEl = document.getElementById("log");
+      function log(line) {
+        logEl.textContent += "\n" + line;
+      }
+      document.getElementById("detect").addEventListener("click", () => {
+        log(window.nux ? "window.nux detected (isNuxConnect=" + window.nux.isNuxConnect + ")" : "window.nux NOT detected — is the extension installed?");
+      });
+      async function call(method) {
+        if (!window.nux) { log("No provider."); return; }
+        try {
+          const result = await window.nux.request({ method });
+          log(method + " -> " + JSON.stringify(result));
+        } catch (e) {
+          log(method + " rejected: code=" + e.code + " message=" + e.message);
+        }
+      }
+      document.getElementById("network").addEventListener("click", () => call("nux_getNetwork"));
+      document.getElementById("accounts").addEventListener("click", () => call("nux_getAccounts"));
+    </script>
+  </body>
+</html>

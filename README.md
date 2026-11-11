@@ -104,3 +104,40 @@ just-in-time channels. Lightning is not part of the MVP scope.
 Work proceeds through pull requests. The locked decisions in the documents
 above are not reopened in pull requests. Technical writing in this
 repository is in English.
+
+## Development
+
+Requirements: Node.js 20+ and npm.
+
+```bash
+npm install
+npm run build       # bundles the extension into dist/
+npm run typecheck   # strict TypeScript check without emitting files
+```
+
+Load the result in Chrome, Brave, or Edge:
+
+1. Open `chrome://extensions` (or the equivalent extensions page).
+2. Enable **Developer mode**.
+3. Click **Load unpacked** and select the `dist/` folder.
+4. Click the NUX Connect toolbar icon: the popup shows the active
+   network (testnet), the live chain tip height, and the current fee
+   rate from the testnet electrs instance.
+
+A provider smoke test page lives in `demo/`: serve that folder with any
+static file server, open it, and use its buttons to detect `window.nux`
+and call `nux_getNetwork`.
+
+Repository layout:
+
+- `src/background` — service worker: request routing, origin gating,
+  status service.
+- `src/content` — message bridge between page and extension.
+- `src/inpage` — the `window.nux` provider.
+- `src/popup`, `src/approval` — user interface windows.
+- `src/lib` — network parameters, provider RPC types, electrs client.
+- `docs/` — the specification and locked design decisions.
+
+Milestone status: the current build is the scaffold milestone. The
+vault, transaction engine, and signing arrive in later milestones, one
+pull request each.

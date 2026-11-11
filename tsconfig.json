@@ -1,0 +1,1 @@
+{"compilerOptions":{"forceConsistentCasingInFileNames":true,"lib":["ES2022","DOM","DOM.Iterable"],"module":"ESNext","moduleResolution":"bundler","noUncheckedIndexedAccess":true,"outDir":"dist","rootDir":".","skipLibCheck":true,"strict":true,"target":"ES2022","types":["chrome"]},"include":["src","build.mjs"]}
