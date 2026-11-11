@@ -33,15 +33,19 @@
   <body>
     <h1>NUX Connect — Provider Smoke Test</h1>
     <p>
-      Minimal page for the scaffold milestone: it detects the injected
-      <code>window.nux</code> provider and calls <code>nux_getNetwork</code>.
-      Serve this folder with any static file server and open it in a
-      browser where the extension is installed.
+      Minimal test page for the provider: it detects the injected
+      <code>window.nux</code> provider, asks to connect
+      (<code>nux_requestAccounts</code>, which opens the extension's
+      approval window), and then reads the network, the accounts, and the
+      balance. Serve this folder with any static file server and open it
+      in a browser where the extension is installed.
     </p>
     <p>
       <button id="detect">Detect provider</button>
       <button id="network">Get network</button>
+      <button id="connect">Connect</button>
       <button id="accounts">Get accounts</button>
+      <button id="balance">Get balance</button>
     </p>
     <pre id="log">Log ready.</pre>
     <script>
@@ -62,7 +66,14 @@
         }
       }
       document.getElementById("network").addEventListener("click", () => call("nux_getNetwork"));
+      document.getElementById("connect").addEventListener("click", () => call("nux_requestAccounts"));
       document.getElementById("accounts").addEventListener("click", () => call("nux_getAccounts"));
+      document.getElementById("balance").addEventListener("click", () => call("nux_getBalance"));
+      if (window.nux) {
+        window.nux.on("accountsChanged", (accounts) => {
+          log("event accountsChanged -> " + JSON.stringify(accounts));
+        });
+      }
     </script>
   </body>
 </html>

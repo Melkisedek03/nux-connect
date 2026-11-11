@@ -2,31 +2,153 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>NUX Connect — Approval</title>
+    <title>NUX Connect — Connection request</title>
     <style>
       body {
         font-family: system-ui, sans-serif;
         margin: 0;
-        padding: 24px;
+        padding: 20px;
         color: #10201a;
         background: #eaf4ef;
       }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
       h1 {
-        font-size: 18px;
+        font-size: 16px;
+        margin: 0;
         color: #0a5c42;
       }
-      p {
-        font-size: 14px;
-        line-height: 1.5;
+      .badge {
+        background: #d97706;
+        color: #fff;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
       }
+      h2 {
+        font-size: 14px;
+        color: #0a5c42;
+        margin: 16px 0 6px;
+      }
+      p, label {
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        margin: 4px 0 10px;
+        padding: 8px;
+        border: 1px solid #b9d4c7;
+        border-radius: 8px;
+        font: inherit;
+        background: #fff;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 8px 14px;
+        background: #0a5c42;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #fff;
+        color: #0a5c42;
+        border: 1px solid #0a5c42;
+      }
+      button:disabled { opacity: 0.55; cursor: wait; }
+      .actions { display: flex; gap: 8px; margin-top: 14px; }
+      .error {
+        color: #b91c1c;
+        font-size: 12.5px;
+        min-height: 1em;
+        margin: 6px 0;
+      }
+      .origin {
+        background: #fff;
+        border: 1px solid #b9d4c7;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-family: ui-monospace, monospace;
+        font-size: 13px;
+        word-break: break-all;
+      }
+      .address {
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        word-break: break-all;
+        font-weight: 600;
+      }
+      .note {
+        font-size: 12px;
+        color: #40695a;
+        border-top: 1px solid #cfe3da;
+        padding-top: 10px;
+        margin-top: 12px;
+      }
+      [hidden] { display: none !important; }
     </style>
   </head>
   <body>
-    <h1>NUX Connect — Approval</h1>
-    <p id="message">
-      The approval flow arrives with the wallet milestone. No request is
-      waiting in this scaffold build.
-    </p>
+    <header>
+      <h1>NUX Connect</h1>
+      <span class="badge" id="networkBadge">TESTNET</span>
+    </header>
+
+    <section id="viewLoading">
+      <p>Loading the connection request…</p>
+    </section>
+
+    <section id="viewError" hidden>
+      <h2>Connection request</h2>
+      <p id="errorMessage">This request can no longer be handled.</p>
+      <div class="actions">
+        <button id="errorClose" type="button">Close</button>
+      </div>
+    </section>
+
+    <section id="viewUnlock" hidden>
+      <h2>Unlock to continue</h2>
+      <p>This site asks to connect to your wallet:</p>
+      <p class="origin" id="unlockOrigin">—</p>
+      <label>
+        Password
+        <input id="unlockPassword" type="password" autocomplete="current-password" />
+      </label>
+      <p class="error" id="unlockError"></p>
+      <div class="actions">
+        <button id="unlockSubmit" type="button">Unlock</button>
+        <button id="unlockReject" type="button" class="secondary">Reject</button>
+      </div>
+    </section>
+
+    <section id="viewConnect" hidden>
+      <h2 id="connectTitle">A site wants to connect</h2>
+      <p class="origin" id="connectOrigin">—</p>
+      <h2>Address that will be shared</h2>
+      <p class="address" id="connectAddress">—</p>
+      <p id="connectNote">
+        The site will be able to see this address and its balances, and to
+        ask you to approve transactions. It cannot move funds without your
+        approval, and you can disconnect it at any time from the wallet
+        popup.
+      </p>
+      <p class="error" id="connectError"></p>
+      <div class="actions">
+        <button id="connectSubmit" type="button">Connect</button>
+        <button id="connectReject" type="button" class="secondary">Reject</button>
+      </div>
+      <p class="note" id="connectNetworkNote">Network: Nusacoin Testnet (testnet).</p>
+    </section>
+
     <script type="module" src="approval.js"></script>
   </body>
 </html>

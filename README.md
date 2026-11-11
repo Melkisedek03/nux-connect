@@ -138,13 +138,18 @@ Repository layout:
 - `src/lib` — network parameters, provider RPC types, electrs client.
 - `docs/` — the specification and locked design decisions.
 
-Milestone status: Milestone 1 (scaffold) is merged. Milestone 2 adds
-the vault: BIP39 wallet creation and import, an AES-GCM encrypted
-vault (PBKDF2-HMAC-SHA256, 600,000 iterations) whose unlock key lives
-only in session storage, a 15-minute inactivity auto-lock, address
-derivation for both networks, and balances in the popup. Connection
-approvals, the transaction engine, and signing arrive in later
-milestones, one pull request each.
+Milestone status: Milestones 1 (scaffold) and 2 (vault) are merged.
+Milestone 2 adds the vault: BIP39 wallet creation and import, an
+AES-GCM encrypted vault (PBKDF2-HMAC-SHA256, 600,000 iterations) whose
+unlock key lives only in session storage, a 15-minute inactivity
+auto-lock, address derivation for both networks, and balances in the
+popup. Milestone 3 adds connection approvals: `nux_requestAccounts`
+opens a dedicated approval window; approving records the origin in a
+connected-origins store, answers with the accounts, and emits
+`accountsChanged` to the origin's tabs, while rejecting or closing the
+window settles the request with error 4001. The popup lists connected
+sites and can disconnect them. The transaction engine and signing
+arrive in later milestones, one pull request each.
 
 A derivation verification harness cross-checks the key engine against
 an independent implementation and the test vectors published in BIP84:
