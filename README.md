@@ -138,6 +138,17 @@ Repository layout:
 - `src/lib` — network parameters, provider RPC types, electrs client.
 - `docs/` — the specification and locked design decisions.
 
-Milestone status: the current build is the scaffold milestone. The
-vault, transaction engine, and signing arrive in later milestones, one
-pull request each.
+Milestone status: Milestone 1 (scaffold) is merged. Milestone 2 adds
+the vault: BIP39 wallet creation and import, an AES-GCM encrypted
+vault (PBKDF2-HMAC-SHA256, 600,000 iterations) whose unlock key lives
+only in session storage, a 15-minute inactivity auto-lock, address
+derivation for both networks, and balances in the popup. Connection
+approvals, the transaction engine, and signing arrive in later
+milestones, one pull request each.
+
+A derivation verification harness cross-checks the key engine against
+an independent implementation and the test vectors published in BIP84:
+
+```bash
+npm run verify:derivation
+```

@@ -8,7 +8,7 @@
         font-family: system-ui, sans-serif;
         margin: 0;
         padding: 16px;
-        width: 300px;
+        width: 320px;
         color: #10201a;
         background: #eaf4ef;
       }
@@ -31,25 +31,79 @@
         font-weight: 700;
         letter-spacing: 0.04em;
       }
-      dl {
-        margin: 14px 0;
+      h2 {
+        font-size: 14px;
+        color: #0a5c42;
+        margin: 14px 0 6px;
+      }
+      p, label {
         font-size: 13px;
+        line-height: 1.45;
       }
-      dt {
-        color: #40695a;
-        margin-top: 8px;
+      input, textarea {
+        width: 100%;
+        box-sizing: border-box;
+        margin: 4px 0 10px;
+        padding: 8px;
+        border: 1px solid #b9d4c7;
+        border-radius: 8px;
+        font: inherit;
+        background: #fff;
       }
-      dd {
-        margin: 2px 0 0;
+      textarea { resize: vertical; }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 8px 14px;
+        background: #0a5c42;
+        color: #fff;
+        font: inherit;
         font-weight: 600;
-        word-break: break-all;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #fff;
+        color: #0a5c42;
+        border: 1px solid #0a5c42;
+      }
+      button:disabled { opacity: 0.55; cursor: wait; }
+      .tabs { display: flex; gap: 8px; margin-top: 10px; }
+      .error {
+        color: #b91c1c;
+        font-size: 12.5px;
+        min-height: 1em;
+        margin: 6px 0;
+      }
+      dl { margin: 10px 0; font-size: 13px; }
+      dt { color: #40695a; margin-top: 8px; }
+      dd { margin: 2px 0 0; font-weight: 600; word-break: break-all; }
+      .mono { font-family: ui-monospace, monospace; font-size: 12px; }
+      .words {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px 12px;
+        background: #fff;
+        border: 1px solid #b9d4c7;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-family: ui-monospace, monospace;
+        font-size: 12.5px;
+      }
+      .warn {
+        background: #fef3c7;
+        border: 1px solid #d97706;
+        border-radius: 8px;
+        padding: 8px 10px;
+        font-size: 12.5px;
       }
       .note {
         font-size: 12px;
         color: #40695a;
         border-top: 1px solid #cfe3da;
         padding-top: 10px;
+        margin-top: 12px;
       }
+      [hidden] { display: none !important; }
     </style>
   </head>
   <body>
@@ -57,20 +111,93 @@
       <h1>NUX Connect</h1>
       <span class="badge" id="networkBadge">TESTNET</span>
     </header>
-    <dl>
-      <dt>Network</dt>
-      <dd id="networkName">Loading…</dd>
-      <dt>Chain tip height</dt>
-      <dd id="tipHeight">—</dd>
-      <dt>Fee rate (nusan/vbyte)</dt>
-      <dd id="feeRate">—</dd>
-      <dt>Wallet</dt>
-      <dd id="walletStatus">No wallet yet</dd>
-    </dl>
-    <p class="note" id="note">
-      Scaffold build. Wallet creation arrives in the next milestone.
-      This build talks to testnet only; mainnet is locked.
-    </p>
+
+    <section id="viewLoading">
+      <p>Loading…</p>
+    </section>
+
+    <section id="viewSetup" hidden>
+      <div class="tabs">
+        <button id="tabCreate" type="button">Create wallet</button>
+        <button id="tabImport" type="button" class="secondary">Import</button>
+      </div>
+      <div id="paneCreate">
+        <h2>Create a new wallet</h2>
+        <p>
+          A 12-word recovery phrase is generated for you. Choose a
+          password of at least 8 characters; it encrypts the wallet in
+          this browser.
+        </p>
+      </div>
+      <div id="paneImport" hidden>
+        <h2>Import a wallet</h2>
+        <p>Paste an existing 12-word BIP39 recovery phrase.</p>
+        <label>
+          Recovery phrase
+          <textarea id="importMnemonic" rows="3" autocomplete="off"></textarea>
+        </label>
+      </div>
+      <label>
+        Password
+        <input id="setupPassword" type="password" autocomplete="new-password" />
+      </label>
+      <label>
+        Confirm password
+        <input id="setupPasswordConfirm" type="password" autocomplete="new-password" />
+      </label>
+      <p class="error" id="setupError"></p>
+      <button id="setupSubmit" type="button">Continue</button>
+      <p class="note">Demo scope, testnet only. Mainnet is locked.</p>
+    </section>
+
+    <section id="viewMnemonic" hidden>
+      <h2>Save your recovery phrase</h2>
+      <p class="warn">
+        Write these 12 words down and keep them somewhere safe. Anyone
+        with the phrase controls the wallet, and it cannot be recovered
+        if lost. It is shown only this once.
+      </p>
+      <div class="words" id="mnemonicWords"></div>
+      <p style="margin-top: 12px">
+        <button id="mnemonicConfirm" type="button">I have saved it</button>
+      </p>
+    </section>
+
+    <section id="viewUnlock" hidden>
+      <h2>Wallet locked</h2>
+      <label>
+        Password
+        <input id="unlockPassword" type="password" autocomplete="current-password" />
+      </label>
+      <p class="error" id="unlockError"></p>
+      <button id="unlockSubmit" type="button">Unlock</button>
+      <p class="note">
+        The vault locks automatically after 15 minutes without activity.
+      </p>
+    </section>
+
+    <section id="viewWallet" hidden>
+      <dl>
+        <dt>Network</dt>
+        <dd id="networkName">—</dd>
+        <dt>Address (receive, index 0)</dt>
+        <dd class="mono" id="walletAddress">—</dd>
+        <dt>Confirmed balance (nusan)</dt>
+        <dd id="confirmedBalance">—</dd>
+        <dt>Unconfirmed balance (nusan)</dt>
+        <dd id="unconfirmedBalance">—</dd>
+        <dt>Chain tip height</dt>
+        <dd id="tipHeight">—</dd>
+        <dt>Fee rate (nusan/vbyte)</dt>
+        <dd id="feeRate">—</dd>
+      </dl>
+      <button id="lockSubmit" type="button" class="secondary">Lock wallet</button>
+      <p class="note" id="walletNote">
+        Testnet wallet. Receiving works at this address; sending arrives
+        in a later milestone.
+      </p>
+    </section>
+
     <script type="module" src="popup.js"></script>
   </body>
 </html>
