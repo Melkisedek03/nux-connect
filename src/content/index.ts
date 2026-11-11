@@ -74,6 +74,13 @@ chrome.runtime.onMessage.addListener((message) => {
   ) {
     return;
   }
+  // Events are addressed to one origin. A tab id can be recycled by the
+  // browser after the original tab closes, so an event must be relayed
+  // only into a page whose origin matches its addressee — never into
+  // whatever tab happens to hold the id now.
+  if (message.origin !== location.origin) {
+    return;
+  }
   const eventMessage: PageEventMessage = {
     source: CONTENT_MESSAGE_SOURCE,
     kind: "event",

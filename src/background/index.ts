@@ -80,27 +80,52 @@ async function currentAccountsFor(origin: string): Promise<string[]> {
 // ---------------------------------------------------------------------------
 // Provider events
 //
-// The background remembers which tabs each origin has called from (in
-// memory only; the map is rebuilt as pages make requests and is empty
-// again after a service-worker restart). Events are sent to those tabs
-// on a best-effort basis.
+// The background remembers which tabs each origin has called from. The
+// registry lives in chrome.storage.session, NOT in worker memory: an
+// MV3 service worker is terminated after a short idle period, and an
+// in-memory registry would silently forget every tab (field finding:
+// lock/unlock events never reached a demo page whose last request had
+// woken a previous worker instance). Session storage survives worker
+// restarts and is cleared when the browser closes — which is also when
+// the tabs themselves are gone. Events carry their target origin, and
+// content scripts relay only events addressed to their own origin, so
+// a recycled tab id can never deliver one site's accounts to another.
 
-const knownTabsByOrigin = new Map<string, Set<number>>();
+const KNOWN_TABS_KEY = "knownTabsByOrigin";
 
-function rememberTab(origin: string, tabId: number | undefined): void {
-  if (tabId === undefined) return;
-  let tabs = knownTabsByOrigin.get(origin);
-  if (!tabs) {
-    tabs = new Set();
-    knownTabsByOrigin.set(origin, tabs);
+type KnownTabs = Record<string, number[]>;
+
+async function loadKnownTabs(): Promise<KnownTabs> {
+  const stored = await chrome.storage.session.get(KNOWN_TABS_KEY);
+  const value = stored[KNOWN_TABS_KEY];
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as KnownTabs;
   }
-  tabs.add(tabId);
+  return {};
 }
 
-function sendEventToTab(tabId: number, event: string, args: unknown[]): void {
+async function rememberTab(
+  origin: string,
+  tabId: number | undefined,
+): Promise<void> {
+  if (tabId === undefined) return;
+  const known = await loadKnownTabs();
+  const tabs = known[origin] ?? [];
+  if (tabs.includes(tabId)) return;
+  known[origin] = [...tabs, tabId];
+  await chrome.storage.session.set({ [KNOWN_TABS_KEY]: known });
+}
+
+function sendEventToTab(
+  tabId: number,
+  origin: string,
+  event: string,
+  args: unknown[],
+): void {
   try {
     const sent = chrome.tabs.sendMessage(tabId, {
       kind: "nux-provider-event",
+      origin,
       event,
       args,
     }) as unknown as Promise<unknown> | undefined;
@@ -114,13 +139,15 @@ function sendEventToTab(tabId: number, event: string, args: unknown[]): void {
 
 async function emitAccountsChanged(origin: string): Promise<void> {
   const accounts = await currentAccountsFor(origin);
-  for (const tabId of knownTabsByOrigin.get(origin) ?? []) {
-    sendEventToTab(tabId, "accountsChanged", [accounts]);
+  const known = await loadKnownTabs();
+  for (const tabId of known[origin] ?? []) {
+    sendEventToTab(tabId, origin, "accountsChanged", [accounts]);
   }
 }
 
 async function emitAccountsChangedEverywhere(): Promise<void> {
-  for (const origin of knownTabsByOrigin.keys()) {
+  const known = await loadKnownTabs();
+  for (const origin of Object.keys(known)) {
     await emitAccountsChanged(origin);
   }
 }
@@ -239,7 +266,7 @@ async function handleRequestAccounts(
   });
   pendingById.set(pending.id, pending);
   pendingByOrigin.set(origin, pending);
-  rememberTab(origin, tabId);
+  await rememberTab(origin, tabId);
 
   try {
     const win = await chrome.windows.create({
@@ -282,7 +309,9 @@ async function handleProviderRequest(
   if (!request || typeof request.method !== "string") {
     throw new ProviderRpcError(ERROR_UNSUPPORTED_METHOD, "Malformed request.");
   }
-  rememberTab(origin, tabId);
+  void rememberTab(origin, tabId).catch(() => {
+    // Registry writes are best-effort; reads stay storage-gated.
+  });
 
   switch (request.method) {
     case "nux_getNetwork":
