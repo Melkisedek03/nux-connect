@@ -164,17 +164,6 @@ export class ElectrsClient {
    * Confirmed balance in nusan: funded minus spent on the confirmed
    * side. By the locked definition, "confirmed" means >= 1 confirmation.
    */
-  async getConfirmedBalance(address: string): Promise<number> {
-    const info = await this.getAddressInfo(address);
-    return info.chainStats.fundedTxoSum - info.chainStats.spentTxoSum;
-  }
-
-  /** Unconfirmed balance delta in nusan (mempool side). */
-  async getUnconfirmedBalance(address: string): Promise<number> {
-    const info = await this.getAddressInfo(address);
-    return info.mempoolStats.fundedTxoSum - info.mempoolStats.spentTxoSum;
-  }
-
   async getAddressUtxos(address: string): Promise<Utxo[]> {
     const raw = await this.getJson<
       {

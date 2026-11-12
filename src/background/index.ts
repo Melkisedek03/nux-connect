@@ -161,6 +161,69 @@ async function invalidateDiscoveryCache(): Promise<void> {
   await chrome.storage.session.remove(DISCOVERY_CACHE_KEY);
 }
 
+// Aggregated balances: confirmed and unconfirmed sums across every
+// used address on both chains. The primary address alone misses
+// change outputs — they land on change-chain addresses — which made
+// the unconfirmed figure show the whole spent input instead of the
+// net outflow after a send (field finding: a 8,000-nusan send from a
+// 35,000-nusan UTXO showed -35,000 instead of -8,280). The result is
+// cached like the discovery (same 60 s window, same key shape) and
+// invalidated by any successful broadcast of our own, so the popup's
+// five-second refresh reads the cache instead of re-aggregating.
+
+const BALANCE_CACHE_KEY = "walletBalanceCache";
+const BALANCE_CACHE_TTL_MS = 60_000;
+
+interface BalanceCacheRecord {
+  at: number;
+  network: string;
+  address: string;
+  confirmed: number;
+  unconfirmed: number;
+}
+
+async function getAggregatedBalances(
+  client: ElectrsClient,
+  primaryAddress: string,
+): Promise<{ confirmed: number; unconfirmed: number }> {
+  const network = activeNetwork();
+  const stored = await chrome.storage.session.get(BALANCE_CACHE_KEY);
+  const cached = stored[BALANCE_CACHE_KEY] as BalanceCacheRecord | undefined;
+  if (
+    cached &&
+    cached.network === network.id &&
+    cached.address === primaryAddress &&
+    Date.now() - cached.at < BALANCE_CACHE_TTL_MS
+  ) {
+    return { confirmed: cached.confirmed, unconfirmed: cached.unconfirmed };
+  }
+  const state = await discoverWalletCached(client);
+  // Unused addresses have zero history by definition, so they add
+  // nothing; one info call per used address carries both balances.
+  let confirmed = 0;
+  let unconfirmed = 0;
+  for (const entry of state.addresses) {
+    if (!entry.used) continue;
+    const info = await client.getAddressInfo(entry.address);
+    confirmed += info.chainStats.fundedTxoSum - info.chainStats.spentTxoSum;
+    unconfirmed +=
+      info.mempoolStats.fundedTxoSum - info.mempoolStats.spentTxoSum;
+  }
+  const record: BalanceCacheRecord = {
+    at: Date.now(),
+    network: network.id,
+    address: primaryAddress,
+    confirmed,
+    unconfirmed,
+  };
+  await chrome.storage.session.set({ [BALANCE_CACHE_KEY]: record });
+  return { confirmed, unconfirmed };
+}
+
+async function invalidateBalanceCache(): Promise<void> {
+  await chrome.storage.session.remove(BALANCE_CACHE_KEY);
+}
+
 /** The accounts a page at this origin may currently see. */
 async function currentAccountsFor(origin: string): Promise<string[]> {
   if (!(await isOriginConnected(origin))) return [];
@@ -709,10 +772,10 @@ async function handleProviderRequest(
         throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
       }
       const client = new ElectrsClient(activeNetwork());
-      const [confirmed, unconfirmed] = await Promise.all([
-        client.getConfirmedBalance(address),
-        client.getUnconfirmedBalance(address),
-      ]);
+      const { confirmed, unconfirmed } = await getAggregatedBalances(
+        client,
+        address,
+      );
       await touchSession();
       // Integer nusan, per the specification.
       return { confirmed, unconfirmed };
@@ -768,6 +831,7 @@ async function executeApproval(pending: PendingRequest): Promise<unknown> {
       const hex = finalizeToHex(psbt);
       const txid = await new ElectrsClient(network).broadcastTx(hex);
       await invalidateDiscoveryCache();
+      await invalidateBalanceCache();
       return txid;
     }
     case "signMessage": {
@@ -792,6 +856,7 @@ async function executeApproval(pending: PendingRequest): Promise<unknown> {
       const hex = finalizeToHex(psbt);
       const txid = await new ElectrsClient(network).broadcastTx(hex);
       await invalidateDiscoveryCache();
+      await invalidateBalanceCache();
       return txid;
     }
   }
@@ -835,10 +900,9 @@ async function handleGetStatus(): Promise<InternalStatus> {
     status.tipHeight = await client.getTipHeight();
     status.feeRate = await client.getFeeRate();
     if (status.address) {
-      status.confirmedBalance = await client.getConfirmedBalance(status.address);
-      status.unconfirmedBalance = await client.getUnconfirmedBalance(
-        status.address,
-      );
+      const balances = await getAggregatedBalances(client, status.address);
+      status.confirmedBalance = balances.confirmed;
+      status.unconfirmedBalance = balances.unconfirmed;
     }
   } catch (error) {
     status.statusError =
