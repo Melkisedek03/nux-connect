@@ -215,6 +215,26 @@
       .tombol { display: flex; gap: 10px; }
       .tombol button { flex: 1; font-size: 17px; }
       .tombol .terima { background: #ffffff; }
+      .kartu {
+        background: #ffffff;
+        border: 3px solid #062b12;
+        border-radius: 16px;
+        padding: 12px 14px;
+        box-shadow: 4px 4px 0 #062b12;
+      }
+      .baris {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 14px;
+        font-weight: 700;
+        padding: 6px 0;
+      }
+      .baris + .baris { border-top: 2px dashed #9adfb4; }
+      .baris .nilai { text-align: right; overflow-wrap: anywhere; }
+      .baris .nilai code { font-size: 12px; }
+      .baris.total { font-size: 17px; font-weight: 900; }
+      .baris.total .nilai { color: #00913a; }
       .bagian {
         background: #ffffff;
         border: 3px solid #062b12;
@@ -453,6 +473,24 @@
       </label>
       <p class="error" id="sendError"></p>
       <p><button id="sendSubmit" type="button" class="lebar">Kirim</button></p>
+    </section>
+
+    <section id="viewReview" hidden>
+      <h2>Periksa kiriman</h2>
+      <div class="kartu">
+        <div class="baris"><span>Tujuan</span><span class="nilai"><code id="reviewTo">—</code></span></div>
+        <div class="baris"><span>Jumlah</span><span class="nilai" id="reviewAmount">—</span></div>
+        <div class="baris"><span>Fee jaringan</span><span class="nilai" id="reviewFee">—</span></div>
+        <div class="baris total"><span>Total keluar</span><span class="nilai" id="reviewTotal">—</span></div>
+        <div class="baris"><span>Kembalian ke dompet ini</span><span class="nilai" id="reviewChange">—</span></div>
+        <div class="baris"><span>Bisa diganti (RBF)</span><span class="nilai" id="reviewRbf">—</span></div>
+      </div>
+      <p class="error" id="reviewError"></p>
+      <div class="tombol" id="reviewDecideRow">
+        <button id="reviewReject" type="button" class="secondary">Tolak</button>
+        <button id="reviewApprove" type="button">Setujui</button>
+      </div>
+      <p id="reviewBackRow" hidden><button id="reviewBack" type="button" class="lebar">Kembali ke formulir</button></p>
     </section>
 
     <section id="viewReceive" hidden>
