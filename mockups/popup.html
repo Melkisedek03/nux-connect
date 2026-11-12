@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup Popup — NUX Connect</title>
+<style>
+  /* Mockup UI statis saja: tanpa JavaScript, tanpa logika dompet, data demo. */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0b3d1e;
+    font-family: "Baloo 2", "Comic Sans MS", "Chalkboard SE", system-ui, sans-serif;
+    display: flex; justify-content: center; padding: 24px 12px; color: #062b12;
+  }
+  .popup {
+    width: 360px; background: #00e65c; border: 4px solid #062b12; border-radius: 24px;
+    box-shadow: 8px 8px 0 #062b12; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+    background: #00c24e; border-bottom: 4px solid #062b12;
+  }
+  .koin {
+    width: 44px; height: 44px; border-radius: 50%; background: #ffd500;
+    border: 3px solid #062b12; display: flex; align-items: center; justify-content: center;
+    font-size: 26px; font-weight: 900; box-shadow: 3px 3px 0 #062b12;
+  }
+  header h1 { font-size: 22px; line-height: 1; }
+  header small { font-size: 12px; font-weight: 700; opacity: .75; }
+  .lencana {
+    margin-left: auto; background: #ffd500; border: 3px solid #062b12; border-radius: 999px;
+    padding: 4px 10px; font-size: 12px; font-weight: 900; box-shadow: 2px 2px 0 #062b12;
+  }
+  .isi { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .kartu-saldo {
+    background: #eafff1; border: 3px solid #062b12; border-radius: 18px;
+    padding: 14px; box-shadow: 4px 4px 0 #062b12; text-align: center;
+  }
+  .kartu-saldo .label { font-size: 12px; font-weight: 800; letter-spacing: 1px; }
+  .kartu-saldo .angka { font-size: 30px; font-weight: 900; line-height: 1.15; }
+  .kartu-saldo .angka span { font-size: 16px; }
+  .kartu-saldo .rincian { font-size: 12px; font-weight: 700; margin-top: 4px; }
+  .kartu-saldo .rincian b { color: #00913a; }
+  .alamat {
+    display: flex; align-items: center; gap: 8px; background: #062b12; color: #b6ffce;
+    border-radius: 12px; padding: 10px 12px; font-size: 13px; font-weight: 700;
+  }
+  .alamat code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .alamat .salin {
+    margin-left: auto; background: #ffd500; color: #062b12; border: 2px solid #b6ffce;
+    border-radius: 8px; padding: 3px 8px; font-size: 11px; font-weight: 900; flex-shrink: 0;
+  }
+  .tombol { display: flex; gap: 10px; }
+  .tombol a {
+    flex: 1; text-align: center; text-decoration: none; color: #062b12; font-weight: 900;
+    font-size: 17px; padding: 12px 0; border: 3px solid #062b12; border-radius: 14px;
+    box-shadow: 4px 4px 0 #062b12;
+  }
+  .tombol .kirim { background: #ffd500; }
+  .tombol .terima { background: #ffffff; }
+  .bagian {
+    background: #ffffff; border: 3px solid #062b12; border-radius: 16px;
+    padding: 12px; box-shadow: 4px 4px 0 #062b12;
+  }
+  .bagian h2 { font-size: 13px; letter-spacing: 1px; margin-bottom: 8px; }
+  .situs {
+    display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700;
+  }
+  .situs .dot { width: 12px; height: 12px; border-radius: 50%; background: #00c24e; border: 2px solid #062b12; }
+  .situs .cabut { margin-left: auto; font-size: 11px; color: #c00; font-weight: 900; }
+  .aktivitas { list-style: none; }
+  .aktivitas li {
+    display: flex; justify-content: space-between; font-size: 13px; font-weight: 700;
+    padding: 7px 0; border-top: 2px dashed #9adfb4;
+  }
+  .aktivitas li:first-child { border-top: 0; }
+  .aktivitas .masuk { color: #00913a; }
+  .aktivitas .keluar { color: #c00; }
+  footer {
+    padding: 10px 16px 14px; font-size: 11px; font-weight: 700; text-align: center; opacity: .75;
+  }
+</style>
+</head>
+<body>
+  <div class="popup">
+    <header>
+      <div class="koin">N</div>
+      <div>
+        <h1>NUX Connect</h1>
+        <small>Dompet Nusacoin</small>
+      </div>
+      <span class="lencana">TESTNET</span>
+    </header>
+    <div class="isi">
+      <section class="kartu-saldo">
+        <div class="label">SALDO KAMU</div>
+        <div class="angka">12.500.000 <span>nusan</span></div>
+        <div class="rincian">Terkonfirmasi <b>12.400.000</b> • Belum terkonfirmasi 100.000</div>
+      </section>
+      <div class="alamat">
+        <code>tn1qxy2kgdygjrsqtzq2n0yrfzak3k3x8…9k7a</code>
+        <span class="salin">SALIN</span>
+      </div>
+      <div class="tombol">
+        <a class="kirim" href="#">Kirim</a>
+        <a class="terima" href="#">Terima</a>
+      </div>
+      <section class="bagian">
+        <h2>SITUS TERHUBUNG</h2>
+        <div class="situs"><span class="dot"></span> demo.nuxconnect.test <span class="cabut">CABUT</span></div>
+      </section>
+      <section class="bagian">
+        <h2>AKTIVITAS TERAKHIR</h2>
+        <ul class="aktivitas">
+          <li><span>⬇ Masuk dari faucet</span><span class="masuk">+50.000</span></li>
+          <li><span>⬆ Kirim ke tn1q…4f2c</span><span class="keluar">−10.000</span></li>
+        </ul>
+      </section>
+    </div>
+    <footer>MOCKUP UI — data demo, bukan dompet sungguhan</footer>
+  </div>
+</body>
+</html>

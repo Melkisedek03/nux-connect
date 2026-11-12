@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup Jendela Persetujuan — NUX Connect</title>
+<style>
+  /* Mockup UI statis saja: tanpa JavaScript, tanpa logika dompet, data demo. */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0b3d1e;
+    font-family: "Baloo 2", "Comic Sans MS", "Chalkboard SE", system-ui, sans-serif;
+    display: flex; justify-content: center; padding: 24px 12px; color: #062b12;
+  }
+  .jendela {
+    width: 400px; background: #00e65c; border: 4px solid #062b12; border-radius: 24px;
+    box-shadow: 8px 8px 0 #062b12; overflow: hidden;
+  }
+  .asal {
+    background: #062b12; color: #b6ffce; padding: 12px 16px; font-size: 13px; font-weight: 800;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .asal .dot { width: 12px; height: 12px; border-radius: 50%; background: #00e65c; border: 2px solid #b6ffce; }
+  .asal code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pita {
+    background: #ffd500; border-bottom: 4px solid #062b12; padding: 8px 16px;
+    font-size: 13px; font-weight: 900; text-align: center; letter-spacing: 1px;
+  }
+  .isi { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  h1 { font-size: 22px; text-align: center; }
+  .kartu {
+    background: #ffffff; border: 3px solid #062b12; border-radius: 16px;
+    padding: 12px 14px; box-shadow: 4px 4px 0 #062b12;
+  }
+  .baris {
+    display: flex; justify-content: space-between; gap: 10px;
+    font-size: 14px; font-weight: 700; padding: 6px 0;
+  }
+  .baris + .baris { border-top: 2px dashed #9adfb4; }
+  .baris .nilai { text-align: right; }
+  .baris .nilai code { font-size: 12px; }
+  .baris.total { font-size: 17px; font-weight: 900; }
+  .baris.total .nilai { color: #00913a; }
+  .peringatan {
+    background: #fff3bf; border: 3px solid #062b12; border-radius: 14px;
+    padding: 10px 12px; font-size: 13px; font-weight: 800; box-shadow: 4px 4px 0 #062b12;
+  }
+  .tombol { display: flex; gap: 10px; }
+  .tombol a {
+    flex: 1; text-align: center; text-decoration: none; color: #062b12; font-weight: 900;
+    font-size: 17px; padding: 12px 0; border: 3px solid #062b12; border-radius: 14px;
+    box-shadow: 4px 4px 0 #062b12;
+  }
+  .tombol .tolak { background: #ffffff; }
+  .tombol .setuju { background: #9adfb4; opacity: .65; }
+  .catatan { font-size: 11px; font-weight: 700; text-align: center; opacity: .75; }
+  footer { padding: 10px 16px 14px; font-size: 11px; font-weight: 700; text-align: center; opacity: .75; }
+</style>
+</head>
+<body>
+  <div class="jendela">
+    <div class="asal"><span class="dot"></span> Permintaan dari <code>demo.nuxconnect.test</code></div>
+    <div class="pita">⚠ TESTNET — BUKAN DANA SUNGGUHAN ⚠</div>
+    <div class="isi">
+      <h1>Kirim NUX?</h1>
+      <div class="kartu">
+        <div class="baris"><span>Tujuan</span><span class="nilai"><code>tn1qxy2k…9k7a</code></span></div>
+        <div class="baris"><span>Jumlah</span><span class="nilai">10.000 nusan</span></div>
+        <div class="baris"><span>Fee (1 nusan/vbyte)</span><span class="nilai">250 nusan</span></div>
+        <div class="baris total"><span>Total keluar</span><span class="nilai">10.250 nusan</span></div>
+      </div>
+      <div class="peringatan">⚠ Periksa alamat tujuan sebelum menyetujui. Transaksi yang sudah disiarkan tidak bisa dibatalkan.</div>
+      <div class="tombol">
+        <a class="tolak" href="#">Tolak</a>
+        <a class="setuju" href="#">Setujui</a>
+      </div>
+      <div class="catatan">Tombol Setujui aktif sesaat lagi (anti-klik refleks) — sesuai spesifikasi.</div>
+    </div>
+    <footer>MOCKUP UI — data demo, bukan dompet sungguhan</footer>
+  </div>
+</body>
+</html>
