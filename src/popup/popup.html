@@ -103,6 +103,15 @@
         padding-top: 10px;
         margin-top: 12px;
       }
+      input[type="checkbox"] {
+        width: auto;
+        margin: 0 6px 0 0;
+      }
+      .activity {
+        font-size: 12.5px;
+        line-height: 1.5;
+      }
+      .activity p { margin: 4px 0; }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -196,9 +205,18 @@
       <div id="connectionsList">
         <p>No sites connected yet.</p>
       </div>
+      <h2>Incoming coins</h2>
+      <label>
+        <input type="checkbox" id="notificationsToggle" />
+        Notify me about incoming coins
+      </label>
+      <div class="activity" id="activityList">
+        <p>No incoming coins yet.</p>
+      </div>
       <p class="note" id="walletNote">
-        Testnet wallet. Receiving works at this address; sending arrives
-        in a later milestone.
+        Testnet wallet. Incoming payments are checked about once a
+        minute while the browser is running, and only while the browser
+        is running; nothing moves without your approval.
       </p>
     </section>
 

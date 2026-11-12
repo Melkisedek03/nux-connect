@@ -33,6 +33,15 @@ export interface Utxo {
   };
 }
 
+/** A transaction's inputs; only prevout addresses are used. */
+export interface TxDetail {
+  vin: {
+    prevout?: {
+      scriptpubkey_address?: string;
+    };
+  }[];
+}
+
 interface RawStats {
   funded_txo_count: number;
   funded_txo_sum: number;
@@ -191,6 +200,14 @@ export class ElectrsClient {
         blockTime: u.status.block_time,
       },
     }));
+  }
+
+  /** Fetch one transaction's inputs (only prevout addresses are used). */
+  async getTx(txid: string): Promise<TxDetail> {
+    const raw = await this.getJson<{
+      vin: { prevout?: { scriptpubkey_address?: string } }[];
+    }>(`/tx/${txid}`);
+    return { vin: raw.vin ?? [] };
   }
 
   /** Broadcast a signed raw transaction (hex). Returns the txid. */
