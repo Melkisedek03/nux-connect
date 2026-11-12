@@ -56,6 +56,10 @@ type InternalRequest =
   | "setNotificationsEnabled"
   | "notificationsOpened"
   | "popupSendDraft"
+  | "popupSendConfirm"
+  | "popupSendCancel"
+  | "getPendingWalletSend"
+  | "getMaxSendable"
   | "getLastSend"
   | "addressBookList"
   | "addressBookAdd"
@@ -93,6 +97,24 @@ interface LastSend {
   txid: string | null;
   error: string | null;
   at: number;
+}
+
+/** The draft summary the background returns for a popup send: the
+ * same shape the approval window renders. */
+interface SendSummary {
+  to: string;
+  amount: number;
+  fee: number;
+  feeRate: number;
+  total: number;
+  changeAddress: string | null;
+  changeValue: number;
+  rbf: boolean;
+}
+
+interface PendingWalletSend {
+  id: string;
+  summary: SendSummary;
 }
 
 /** The current receive address (see src/lib/receiveaddress.ts):
@@ -135,6 +157,7 @@ const VIEWS = [
   "viewUnlock",
   "viewWallet",
   "viewSend",
+  "viewReview",
   "viewReceive",
 ] as const;
 
@@ -154,6 +177,11 @@ let setupMode: "create" | "import" = "create";
  * before the first render (default nusan). Every amount this popup
  * shows — balances, activity, last send — formats through it. */
 let displayUnit: DisplayUnit = "nusan";
+
+/** The last-known confirmed balance, for the review's remaining
+ * figure. Updated on every successful status read; null until the
+ * first one lands. */
+let lastConfirmedBalance: number | null = null;
 
 /** Apply the current unit to the static labels: the toggle button,
  * the hero unit, the send form's label, and the send field's
@@ -210,6 +238,7 @@ function renderWallet(status: StatusResult): void {
   // below still says the backend failed. The hero total only moves
   // when both halves are known — a half-known total would be wrong.
   if (status.confirmedBalance !== null) {
+    lastConfirmedBalance = status.confirmedBalance;
     setText(
       "confirmedBalance",
       formatAmountValue(status.confirmedBalance, displayUnit),
@@ -707,15 +736,15 @@ async function handleSend(): Promise<void> {
   const originalText = button.textContent;
   button.textContent = "Preparing…";
   try {
-    // Returns once the approval window is open; the decision itself
-    // happens there, and the result is recorded for this popup to
-    // show on its next open.
-    await call<unknown>("popupSendDraft", { to, amount, rbf });
-    el<HTMLInputElement>("sendTo").value = "";
-    el<HTMLInputElement>("sendAmount").value = "";
-    // The approval window is open; back home, where the last-send
-    // line will show the result on the next refresh.
-    show("viewWallet");
+    // The background returns the draft summary with its pending id;
+    // the review happens here, in this popup. The form keeps its
+    // values until the send executes, so a rejection returns to an
+    // editable form.
+    const result = await call<{ summary: SendSummary; id: string }>(
+      "popupSendDraft",
+      { to, amount, rbf },
+    );
+    showReview({ id: result.id, summary: result.summary });
   } catch (error) {
     setText(
       "sendError",
@@ -727,10 +756,158 @@ async function handleSend(): Promise<void> {
   }
 }
 
+async function handleSendMax(): Promise<void> {
+  const button = el<HTMLButtonElement>("sendMax");
+  setText("sendError", "");
+  button.disabled = true;
+  try {
+    const result = await call<{ amount: number; fee: number; feeRate: number }>(
+      "getMaxSendable",
+    );
+    const input = el<HTMLInputElement>("sendAmount");
+    input.value = formatAmountValue(result.amount, displayUnit);
+    formatAmountInput(input);
+  } catch (error) {
+    setText(
+      "sendError",
+      error instanceof Error
+        ? error.message
+        : "Tidak bisa menghitung jumlah maksimum.",
+    );
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/** The pending wallet send under inline review, if any. */
+let reviewPendingId: string | null = null;
+
+/** Render a draft summary into the review view and show it. Amounts
+ * follow the popup's current display unit. */
+function showReview(pending: PendingWalletSend): void {
+  reviewPendingId = pending.id;
+  const summary = pending.summary;
+  setText("reviewTo", summary.to);
+  setText("reviewAmount", formatAmount(summary.amount, displayUnit));
+  setText(
+    "reviewFee",
+    `${formatAmount(summary.fee, displayUnit)} (dengan ${summary.feeRate} nusan/vbyte)`,
+  );
+  setText("reviewTotal", formatAmount(summary.total, displayUnit));
+  setText(
+    "reviewChange",
+    summary.changeAddress
+      ? `${formatAmount(summary.changeValue, displayUnit)} ke alamat kembalian dompet ini`
+      : "0 (sisanya masuk ke fee)",
+  );
+  setText(
+    "reviewRbf",
+    summary.rbf ? "Ya — transaksi ini bisa diganti" : "Tidak",
+  );
+  // What stays in the wallet after this send: the confirmed balance
+  // minus the total out. The change is already inside that figure
+  // (it comes back as a new output), so it is not added twice.
+  setText(
+    "reviewRemaining",
+    lastConfirmedBalance === null
+      ? "—"
+      : formatAmount(lastConfirmedBalance - summary.total, displayUnit),
+  );
+  setText("reviewError", "");
+  el("reviewDecideRow").hidden = false;
+  el("reviewBackRow").hidden = true;
+  show("viewReview");
+}
+
+async function handleReviewConfirm(): Promise<void> {
+  if (reviewPendingId === null) return;
+  const button = el<HTMLButtonElement>("reviewApprove");
+  setText("reviewError", "");
+  button.disabled = true;
+  try {
+    const result = await call<{ resolved: boolean; execError?: string }>(
+      "popupSendConfirm",
+      { id: reviewPendingId },
+    );
+    if (result.execError) {
+      // Execution failed: the pending is settled, so there is
+      // nothing left to approve — show the failure and offer the
+      // way back to the form.
+      setText("reviewError", result.execError);
+      el("reviewDecideRow").hidden = true;
+      el("reviewBackRow").hidden = false;
+      return;
+    }
+    reviewPendingId = null;
+    el<HTMLInputElement>("sendTo").value = "";
+    el<HTMLInputElement>("sendAmount").value = "";
+    await refresh();
+  } catch (error) {
+    // The pending is gone, or the vault locked mid-review: the
+    // same dead end as an execution failure.
+    setText(
+      "reviewError",
+      error instanceof Error ? error.message : "Pengiriman gagal.",
+    );
+    el("reviewDecideRow").hidden = true;
+    el("reviewBackRow").hidden = false;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handleReviewCancel(): Promise<void> {
+  if (reviewPendingId === null) {
+    show("viewSend");
+    return;
+  }
+  const button = el<HTMLButtonElement>("reviewReject");
+  button.disabled = true;
+  try {
+    await call<{ resolved: boolean }>("popupSendCancel", {
+      id: reviewPendingId,
+    });
+  } catch {
+    // The pending may already be gone (worker restart); the user's
+    // intent is to leave the review either way.
+  } finally {
+    button.disabled = false;
+  }
+  reviewPendingId = null;
+  show("viewSend");
+}
+
+/** If a wallet send is awaiting its inline review (the popup closed
+ * mid-review), show the review again instead of the home view. */
+async function resumePendingReview(): Promise<void> {
+  try {
+    const result = await call<{ pending: PendingWalletSend | null }>(
+      "getPendingWalletSend",
+    );
+    if (result.pending) showReview(result.pending);
+  } catch {
+    // No pending review, or the check failed — stay home.
+  }
+}
+
+/** The currently visible view, if any. */
+function currentView(): (typeof VIEWS)[number] | null {
+  for (const id of VIEWS) {
+    if (!el(id).hidden) return id;
+  }
+  return null;
+}
+
 async function refresh(): Promise<void> {
+  // A refresh that started on one view must not yank the user back
+  // when it lands after they navigated away: the 5 s live refresh
+  // fires on the home view, but its status read can resolve after
+  // the user reached the send form or the review.
+  const viewBefore = currentView();
   const status = await call<StatusResult>("getStatus");
   // Opening the popup clears the incoming-coins badge (locked rule).
   void call("notificationsOpened").catch(() => {});
+  if (currentView() !== viewBefore) return;
   setText(
     "networkBadge",
     status.network === "testnet" ? "TESTNET" : status.network.toUpperCase(),
@@ -742,6 +919,7 @@ async function refresh(): Promise<void> {
     show("viewUnlock");
   } else {
     renderWallet(status);
+    await resumePendingReview();
   }
 }
 
@@ -881,6 +1059,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   el("receiveRefresh").addEventListener("click", () => void handleReceiveRefresh());
   el("sendSubmit").addEventListener("click", () => void handleSend());
+  el("sendMax").addEventListener("click", () => void handleSendMax());
+  el("reviewApprove").addEventListener("click", () => void handleReviewConfirm());
+  el("reviewReject").addEventListener("click", () => void handleReviewCancel());
+  el("reviewBack").addEventListener("click", () => show("viewSend"));
   el("addressBookAdd").addEventListener("click", () => void handleAddressBookAdd());
   el("notificationsToggle").addEventListener("change", (event) => {
     const enabled = (event.target as HTMLInputElement).checked;

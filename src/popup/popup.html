@@ -81,6 +81,32 @@
         gap: 14px;
       }
       #viewWallet .note { margin-top: 0; }
+      /* The receive and review views get the same treatment: the
+         reset kills every default margin, so the gap is the only
+         spacing — and the children's own margins are zeroed so they
+         do not double it. */
+      #viewReceive, #viewReview {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      #viewReceive h2, #viewReview h2 { margin-bottom: 0; }
+      #viewReceive .error, #viewReview .error { margin: 0; }
+      #viewReceive .note { margin-top: 0; }
+      .label-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 13px;
+        line-height: 1.45;
+        font-weight: 700;
+      }
+      button.max {
+        width: auto;
+        padding: 2px 10px;
+        font-size: 12px;
+        box-shadow: 2px 2px 0 #062b12;
+      }
       h2 { font-size: 16px; margin-bottom: 8px; }
       p, label { font-size: 13px; line-height: 1.45; font-weight: 700; }
       input, textarea {
@@ -215,6 +241,26 @@
       .tombol { display: flex; gap: 10px; }
       .tombol button { flex: 1; font-size: 17px; }
       .tombol .terima { background: #ffffff; }
+      .kartu {
+        background: #ffffff;
+        border: 3px solid #062b12;
+        border-radius: 16px;
+        padding: 12px 14px;
+        box-shadow: 4px 4px 0 #062b12;
+      }
+      .baris {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 14px;
+        font-weight: 700;
+        padding: 6px 0;
+      }
+      .baris + .baris { border-top: 2px dashed #9adfb4; }
+      .baris .nilai { text-align: right; overflow-wrap: anywhere; }
+      .baris .nilai code { font-size: 12px; }
+      .baris.total { font-size: 17px; font-weight: 900; }
+      .baris.total .nilai { color: #00913a; }
       .bagian {
         background: #ffffff;
         border: 3px solid #062b12;
@@ -401,17 +447,6 @@
         </div>
       </section>
       <section class="bagian">
-        <h2>AKTIVITAS</h2>
-        <label>
-          <input type="checkbox" id="notificationsToggle" />
-          Beri tahu aku tentang koin masuk
-        </label>
-        <div class="activity" id="activityList">
-          <p>Belum ada koin masuk.</p>
-        </div>
-        <p class="note" id="lastSend" hidden></p>
-      </section>
-      <section class="bagian">
         <h2>BUKU ALAMAT</h2>
         <div class="activity" id="addressBookList"></div>
         <label>
@@ -424,6 +459,17 @@
         </label>
         <p class="error" id="addressBookError"></p>
         <p><button id="addressBookAdd" type="button">Tambah ke buku alamat</button></p>
+      </section>
+      <section class="bagian">
+        <h2>AKTIVITAS</h2>
+        <label>
+          <input type="checkbox" id="notificationsToggle" />
+          Beri tahu aku tentang koin masuk
+        </label>
+        <div class="activity" id="activityList">
+          <p>Belum ada koin masuk.</p>
+        </div>
+        <p class="note" id="lastSend" hidden></p>
       </section>
       <p class="rincian-kecil">
         <span id="networkName">—</span> • Blok <span id="tipHeight">—</span> • Fee <span id="feeRate">—</span> nusan/vbyte
@@ -443,8 +489,11 @@
         Alamat tujuan
         <input id="sendTo" type="text" autocomplete="off" spellcheck="false" />
       </label>
-      <label>
+      <div class="label-row">
         <span id="sendAmountLabel">Jumlah (nusan)</span>
+        <button id="sendMax" type="button" class="max">MAX</button>
+      </div>
+      <label>
         <input id="sendAmount" type="text" inputmode="numeric" autocomplete="off" />
       </label>
       <label>
@@ -453,6 +502,25 @@
       </label>
       <p class="error" id="sendError"></p>
       <p><button id="sendSubmit" type="button" class="lebar">Kirim</button></p>
+    </section>
+
+    <section id="viewReview" hidden>
+      <h2>Periksa kiriman</h2>
+      <div class="kartu">
+        <div class="baris"><span>Tujuan</span><span class="nilai"><code id="reviewTo">—</code></span></div>
+        <div class="baris"><span>Jumlah</span><span class="nilai" id="reviewAmount">—</span></div>
+        <div class="baris"><span>Fee jaringan</span><span class="nilai" id="reviewFee">—</span></div>
+        <div class="baris total"><span>Total keluar</span><span class="nilai" id="reviewTotal">—</span></div>
+        <div class="baris"><span>Kembalian ke dompet ini</span><span class="nilai" id="reviewChange">—</span></div>
+        <div class="baris"><span>Bisa diganti (RBF)</span><span class="nilai" id="reviewRbf">—</span></div>
+        <div class="baris"><span>Saldo tersisa</span><span class="nilai" id="reviewRemaining">—</span></div>
+      </div>
+      <p class="error" id="reviewError"></p>
+      <div class="tombol" id="reviewDecideRow">
+        <button id="reviewReject" type="button" class="secondary">Tolak</button>
+        <button id="reviewApprove" type="button">Setujui</button>
+      </div>
+      <p id="reviewBackRow" hidden><button id="reviewBack" type="button" class="lebar">Kembali ke formulir</button></p>
     </section>
 
     <section id="viewReceive" hidden>

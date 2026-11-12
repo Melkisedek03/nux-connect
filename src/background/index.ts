@@ -56,6 +56,7 @@ import {
   TxError,
   buildSendTransaction,
   finalizeToHex,
+  maxSendable,
   signMessageLegacy,
   signWalletPsbt,
   summarizePsbt,
@@ -557,12 +558,17 @@ interface ApprovalExtras {
  */
 const WALLET_ORIGIN = "wallet";
 
-async function openApprovalWindow(
+/**
+ * Register a pending approval without opening a window. The approval
+ * window path and the popup's inline review share this: both need the
+ * one-at-a-time guard from pendingByOrigin and the settle-by-id path,
+ * but only the window path creates a window.
+ */
+function createPending(
   origin: string,
   kind: ApprovalKind,
-  tabId: number | undefined,
   extras: ApprovalExtras,
-): Promise<unknown> {
+): { pending: PendingRequest; promise: Promise<unknown> } {
   const pending: PendingRequest = {
     id: crypto.randomUUID(),
     origin,
@@ -579,6 +585,16 @@ async function openApprovalWindow(
   });
   pendingById.set(pending.id, pending);
   pendingByOrigin.set(origin, pending);
+  return { pending, promise };
+}
+
+async function openApprovalWindow(
+  origin: string,
+  kind: ApprovalKind,
+  tabId: number | undefined,
+  extras: ApprovalExtras,
+): Promise<unknown> {
+  const { pending, promise } = createPending(origin, kind, extras);
   await rememberTab(origin, tabId);
 
   try {
@@ -1175,14 +1191,16 @@ interface InternalMessage {
 type InternalHandler = (message: InternalMessage) => Promise<unknown>;
 
 // ---------------------------------------------------------------------------
-// Popup-initiated sends (Milestone 6). The popup builds no transaction
-// itself: it sends {to, amount, rbf} here, the background builds the
-// draft with the same engine the provider path uses, and the same
-// approval window asks for the decision. Two differences from the
+// Popup-initiated sends (Milestone 6, inline review in Milestone 11).
+// The popup builds no transaction itself: it sends {to, amount, rbf}
+// here, the background builds the draft with the same engine the
+// provider path uses, and the popup reviews the draft inline instead
+// of opening the approval window — the user is already looking at the
+// popup, so the decision stays there. Two differences from the
 // provider path: there is no dApp origin (WALLET_ORIGIN stands in),
-// and the result cannot be returned to the caller — the popup closes
-// when the approval window takes focus — so the settlement is
-// recorded in storage for the popup to show on its next open.
+// and the popup may close mid-review, so the pending review is
+// resumable (getPendingWalletSend) and the settlement is recorded in
+// storage for the popup to show on its next open.
 
 const LAST_SEND_KEY = "lastPopupSend";
 
@@ -1207,7 +1225,7 @@ async function recordLastPopupSend(result: LastPopupSend): Promise<void> {
 
 async function handlePopupSendDraft(
   message: InternalMessage,
-): Promise<{ summary: SendDraft["summary"] }> {
+): Promise<{ summary: SendDraft["summary"]; id: string }> {
   // Errors here are ProviderRpcError on purpose: the onMessage wrapper
   // passes only ProviderRpcError and VaultError messages through to
   // the popup — a plain Error would surface as "Internal error." and
@@ -1275,11 +1293,13 @@ async function handlePopupSendDraft(
       }`,
     );
   }
-  // Open the approval window without awaiting the decision: the popup
-  // closes when the window takes focus, so nobody is left to receive
-  // the result. Record the settlement instead — except a user
-  // rejection, which is a deliberate "no", not a failed send.
-  const settled = openApprovalWindow(WALLET_ORIGIN, "send", undefined, {
+  // No approval window: the popup reviews the draft inline. Register
+  // the pending (the one-at-a-time guard + the settle-by-id path) and
+  // return its id with the summary; the popup decides via
+  // popupSendConfirm / popupSendCancel. The settlement is still
+  // recorded for the last-send line — except a user rejection, which
+  // is a deliberate "no", not a failed send.
+  const { pending, promise: settled } = createPending(WALLET_ORIGIN, "send", {
     sendDraft: draft,
     sendOwnership: ownershipMap(state),
   });
@@ -1314,29 +1334,99 @@ async function handlePopupSendDraft(
       });
     },
   );
-  // openApprovalWindow only settles on the user's decision, so confirm
-  // the window itself opened before returning: the popup reports
-  // success on this return and must not claim a window that never
-  // appeared. The pending entry is registered synchronously, so this
-  // poll sees it at once; window creation normally lands in the first
-  // ticks, and a failed creation settles (and removes) the entry.
-  for (let i = 0; i < 50; i++) {
-    const pending = pendingByOrigin.get(WALLET_ORIGIN);
-    if (!pending) {
-      throw new ProviderRpcError(
-        ERROR_SERVER,
-        "Could not open the approval window.",
-      );
-    }
-    if (pending.windowId !== null) {
-      return { summary: draft.summary };
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  return { summary: draft.summary, id: pending.id };
+}
+
+/**
+ * The wallet's own pending send, for the popup's inline review. The
+ * popup must never decide a dApp request, so these handlers verify
+ * the pending belongs to the wallet before touching it.
+ */
+function walletSendPending(id: string | undefined): PendingRequest {
+  const pending = id === undefined ? undefined : pendingById.get(id);
+  if (
+    !pending ||
+    pending.origin !== WALLET_ORIGIN ||
+    pending.kind !== "send"
+  ) {
+    throw new ProviderRpcError(
+      ERROR_SERVER,
+      "This send is no longer awaiting review.",
+    );
   }
-  throw new ProviderRpcError(
-    ERROR_SERVER,
-    "The approval window did not open in time.",
-  );
+  return pending;
+}
+
+async function handlePopupSendConfirm(
+  message: InternalMessage,
+): Promise<{ resolved: true; execError?: string }> {
+  const pending = walletSendPending(message.id);
+  return handleResolveApproval(pending.id, true);
+}
+
+async function handlePopupSendCancel(
+  message: InternalMessage,
+): Promise<{ resolved: true }> {
+  const pending = walletSendPending(message.id);
+  rejectRequest(pending, false);
+  return { resolved: true };
+}
+
+async function handleGetPendingWalletSend(): Promise<{
+  pending: { id: string; summary: SendDraft["summary"] } | null;
+}> {
+  const pending = pendingByOrigin.get(WALLET_ORIGIN);
+  if (
+    !pending ||
+    pending.settled ||
+    pending.kind !== "send" ||
+    !pending.sendDraft
+  ) {
+    return { pending: null };
+  }
+  // The summary names the recipient and the amounts: only while
+  // unlocked, the same rule the approval window's read follows.
+  if (!(await isUnlocked())) {
+    return { pending: null };
+  }
+  return { pending: { id: pending.id, summary: pending.sendDraft.summary } };
+}
+
+/**
+ * The MAX button's figure: the largest amount one transaction can
+ * send, from the cached UTXO set at the active network's own fee
+ * rate. Read-only (no draft is built), but the send form is an
+ * unlocked-only surface, so the lock rule matches the draft path.
+ */
+async function handleGetMaxSendable(): Promise<{
+  amount: number;
+  fee: number;
+  feeRate: number;
+}> {
+  if (!(await hasVault())) {
+    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
+  }
+  if (!(await isUnlocked())) {
+    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "The wallet is locked.");
+  }
+  const network = activeNetwork();
+  const client = new ElectrsClient(network);
+  const networkRate = await client.getFeeRate();
+  const feeRate = Math.min(MAX_FEE_RATE, Math.max(1, Math.round(networkRate)));
+  const state = await getWalletState(client);
+  try {
+    const { amount, fee } = maxSendable({
+      utxos: state.utxos,
+      feeRate,
+      dustLimit: network.dustLimit,
+    });
+    return { amount, fee, feeRate };
+  } catch (error) {
+    if (error instanceof TxError) {
+      throw new ProviderRpcError(ERROR_SERVER, error.message);
+    }
+    throw error;
+  }
 }
 
 const internalHandlers: Record<string, InternalHandler> = {
@@ -1391,6 +1481,10 @@ const internalHandlers: Record<string, InternalHandler> = {
     return { connections: await listConnections() };
   },
   popupSendDraft: async (message) => handlePopupSendDraft(message),
+  popupSendConfirm: async (message) => handlePopupSendConfirm(message),
+  popupSendCancel: async (message) => handlePopupSendCancel(message),
+  getPendingWalletSend: async () => handleGetPendingWalletSend(),
+  getMaxSendable: async () => handleGetMaxSendable(),
   getLastSend: async () => {
     const stored = await chrome.storage.local.get(LAST_SEND_KEY);
     const lastSend = stored[LAST_SEND_KEY] as LastPopupSend | undefined;

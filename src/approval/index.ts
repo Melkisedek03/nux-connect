@@ -4,7 +4,9 @@
 // focus — an unsafe place for a decision. This page is an extension
 // page, so it may use the internal message channel; it never sees the
 // recovery phrase, and request details (addresses, amounts, message
-// text) are handed to it only while the vault is unlocked.
+// text) are handed to it only while the vault is unlocked. Sends the
+// wallet itself starts (from the popup) approve inline in the popup
+// instead; this window serves dApp requests only.
 //
 // Flow: read the request id from the URL, ask the background for the
 // request state, then render one view per state and kind — an error
@@ -99,10 +101,41 @@ const VIEWS = [
   "viewPsbt",
 ] as const;
 
+/**
+ * Resize this window to fit its content exactly. chrome.windows.create
+ * sizes the OUTER window (frame + title bar included), so a fixed
+ * 400x600 window clips a 400px-wide page and scrolls a taller one.
+ * The frame size is measured live (outer minus inner), and the height
+ * is capped at the available screen so a long PSBT still scrolls
+ * instead of running off the display. Cosmetic only: a failure here
+ * must never break the approval flow.
+ */
+async function fitWindow(): Promise<void> {
+  try {
+    const frameWidth = window.outerWidth - window.innerWidth;
+    const frameHeight = window.outerHeight - window.innerHeight;
+    const width =
+      Math.ceil(document.documentElement.scrollWidth) + frameWidth;
+    const height = Math.min(
+      Math.ceil(document.documentElement.scrollHeight) + frameHeight,
+      Math.floor(window.screen.availHeight * 0.95),
+    );
+    const win = await chrome.windows.getCurrent();
+    if (win.id === undefined) return;
+    if (win.width !== width || win.height !== height) {
+      await chrome.windows.update(win.id, { width, height });
+    }
+  } catch {
+    // Sizing is cosmetic; never break the approval flow.
+  }
+}
+
 function show(view: (typeof VIEWS)[number]): void {
   for (const id of VIEWS) {
     el(id).hidden = id !== view;
   }
+  // Every view has its own height; resize after each switch.
+  void fitWindow();
 }
 
 function setText(id: string, text: string): void {

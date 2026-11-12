@@ -77,6 +77,17 @@
         flex-direction: column;
         gap: 12px;
       }
+      /* Every view stacks its blocks with the same 14px gap the
+         popup uses — the reset kills every default margin, so the
+         gap is the only spacing. The error and note margins are
+         zeroed inside the views so they do not double it. */
+      .isi > section {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .isi > section .error { margin: 0; }
+      .isi > section .note { margin-top: 0; }
       h1 { font-size: 22px; text-align: center; }
       h2 { font-size: 16px; }
       p, label { font-size: 13px; line-height: 1.45; font-weight: 700; }
