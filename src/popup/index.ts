@@ -52,7 +52,17 @@ type InternalRequest =
   | "addressBookList"
   | "addressBookAdd"
   | "addressBookRemove"
+  | "getMarketInfo"
   | "disconnectOrigin";
+
+interface MarketInfo {
+  lastUsdt: number;
+  prevCloseUsdt: number | null;
+  usdtIdrRate: number | null;
+  priceIdr: number | null;
+  changePct: number | null;
+  fetchedAt: number;
+}
 
 interface AddressBookEntry {
   id: string;
@@ -144,6 +154,7 @@ function renderWallet(status: StatusResult): void {
   void renderActivity();
   void renderLastSend();
   void renderAddressBook();
+  void renderMarket(status);
 }
 
 function renderConnectionsList(connections: Connection[]): void {
@@ -288,6 +299,73 @@ async function renderAddressBook(): Promise<void> {
     renderAddressBookList(result.entries);
   } catch {
     // The wallet view stays usable without the address book.
+  }
+}
+
+function formatIdr(value: number): string {
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatNuxPriceIdr(value: number): string {
+  // Below Rp1 the 2-decimal display loses the price; keep 4.
+  const digits = value >= 1 ? 2 : 4;
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+async function renderMarket(status: StatusResult): Promise<void> {
+  const section = el("marketInfo");
+  try {
+    const result = await call<{ market: MarketInfo | null }>("getMarketInfo");
+    const market = result.market;
+    if (!market) {
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    const change =
+      market.changePct === null
+        ? ""
+        : ` (${market.changePct >= 0 ? "+" : ""}${market.changePct.toFixed(1)}% 24h)`;
+    const updated = new Date(market.fetchedAt).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    if (market.priceIdr !== null) {
+      setText(
+        "marketPrice",
+        `1 NUX ≈ Rp${formatNuxPriceIdr(market.priceIdr)}${change}`,
+      );
+    } else {
+      // The IDR rate is unavailable; fall back to the USDT price.
+      setText(
+        "marketPrice",
+        `1 NUX ≈ $${market.lastUsdt.toFixed(6)} USDT${change}`,
+      );
+    }
+    setText(
+      "marketSource",
+      `Market price — qutrade.io / Indodax · updated ${updated}`,
+    );
+    const equivalent = el("marketEquivalent");
+    const total =
+      (status.confirmedBalance ?? 0) + (status.unconfirmedBalance ?? 0);
+    if (market.priceIdr !== null && total > 0) {
+      // 1 NUX = 100,000,000 nusan.
+      const idr = (total / 100_000_000) * market.priceIdr;
+      equivalent.textContent = `Balance ≈ Rp${formatIdr(idr)}`;
+      equivalent.hidden = false;
+    } else {
+      equivalent.hidden = true;
+    }
+  } catch {
+    // No market data, no market section — never an error.
+    section.hidden = true;
   }
 }
 
