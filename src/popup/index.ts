@@ -47,7 +47,20 @@ type InternalRequest =
   | "getActivity"
   | "setNotificationsEnabled"
   | "notificationsOpened"
+  | "popupSendDraft"
+  | "getLastSend"
   | "disconnectOrigin";
+
+interface LastSend {
+  to: string;
+  amount: number;
+  fee: number;
+  rbf: boolean;
+  ok: boolean;
+  txid: string | null;
+  error: string | null;
+  at: number;
+}
 
 function call<T>(request: InternalRequest, payload: object = {}): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -118,6 +131,7 @@ function renderWallet(status: StatusResult): void {
   show("viewWallet");
   void renderConnections();
   void renderActivity();
+  void renderLastSend();
 }
 
 function renderConnectionsList(connections: Connection[]): void {
@@ -200,6 +214,68 @@ async function renderActivity(): Promise<void> {
     renderActivityList(result.entries);
   } catch {
     // The wallet view stays usable without the activity list.
+  }
+}
+
+async function renderLastSend(): Promise<void> {
+  try {
+    const result = await call<{ lastSend: LastSend | null }>("getLastSend");
+    const line = el("lastSend");
+    const last = result.lastSend;
+    if (!last) {
+      line.hidden = true;
+      return;
+    }
+    line.hidden = false;
+    if (last.ok) {
+      line.textContent =
+        `Last send: ${last.amount} nusan to ${last.to} — txid ${last.txid ?? "—"}` +
+        (last.rbf ? " (replaceable)" : "");
+    } else {
+      line.textContent = `Last send failed: ${last.error ?? "unknown error"}`;
+    }
+  } catch {
+    // The wallet view stays usable without the last-send line.
+  }
+}
+
+async function handleSend(): Promise<void> {
+  const to = el<HTMLInputElement>("sendTo").value.trim();
+  const amountText = el<HTMLInputElement>("sendAmount").value.trim();
+  const rbf = el<HTMLInputElement>("sendRbf").checked;
+  const button = el<HTMLButtonElement>("sendSubmit");
+  setText("sendError", "");
+  if (!to) {
+    setText("sendError", "Enter a recipient address.");
+    return;
+  }
+  if (!/^\d+$/.test(amountText)) {
+    setText("sendError", "Amount must be a whole number of nusan.");
+    return;
+  }
+  const amount = Number(amountText);
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    setText("sendError", "Amount must be a positive integer number of nusan.");
+    return;
+  }
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = "Preparing…";
+  try {
+    // Returns once the approval window is open; the decision itself
+    // happens there, and the result is recorded for this popup to
+    // show on its next open.
+    await call<unknown>("popupSendDraft", { to, amount, rbf });
+    el<HTMLInputElement>("sendTo").value = "";
+    el<HTMLInputElement>("sendAmount").value = "";
+  } catch (error) {
+    setText(
+      "sendError",
+      error instanceof Error ? error.message : "Could not prepare the send.",
+    );
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
   }
 }
 
@@ -319,6 +395,7 @@ document.addEventListener("DOMContentLoaded", () => {
   el("lockSubmit").addEventListener("click", () => {
     void call("vaultLock").then(() => refresh());
   });
+  el("sendSubmit").addEventListener("click", () => void handleSend());
   el("notificationsToggle").addEventListener("change", (event) => {
     const enabled = (event.target as HTMLInputElement).checked;
     void call<{ enabled: boolean }>("setNotificationsEnabled", { enabled })

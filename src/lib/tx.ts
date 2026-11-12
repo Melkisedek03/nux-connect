@@ -13,6 +13,9 @@
 // - A PSBT's implied fee rate (recalculated by this code, never taken
 //   from the requester) must not exceed the fee-rate ceiling; the
 //   caller enforces it as a rejection before any approval is shown.
+// - A send may signal BIP125 replaceability (RBF) when the sender asks
+//   for it; inputs then use nSequence 0xfffffffd. Signalling
+//   replaceability does not by itself replace anything.
 // - Message signing is Nusacoin Core's legacy scheme exactly, so
 //   signatures verify in Core's `verifymessage` and in the web wallet.
 
@@ -47,6 +50,12 @@ export class TxError extends Error {
 export const MAX_FEE_RATE = 546;
 
 /**
+ * nSequence signalling BIP125 replaceability (RBF): any value below
+ * 0xfffffffe opts in; 0xfffffffd is the conventional choice.
+ */
+export const RBF_SEQUENCE = 0xfffffffd;
+
+/**
  * Estimated virtual size of a P2WPKH transaction: ~10 vbytes of
  * overhead, ~68 per input (witness included), ~31 per output.
  */
@@ -75,6 +84,8 @@ export interface SendSummary {
   inputs: SendInput[];
   changeAddress: string | null;
   changeValue: number;
+  /** Whether the transaction signals BIP125 replaceability. */
+  rbf: boolean;
 }
 
 export interface SendDraft {
@@ -95,8 +106,10 @@ export function buildSendTransaction(args: {
   feeRate: number;
   network: NuxNetwork;
   changeAddress: string;
+  /** Signal BIP125 replaceability on every input (default: off). */
+  rbf?: boolean;
 }): SendDraft {
-  const { network, amount, feeRate } = args;
+  const { network, amount, feeRate, rbf } = args;
   const btcNetwork = toBitcoinJsNetwork(network);
   if (!Number.isSafeInteger(amount) || amount <= 0) {
     throw new TxError(
@@ -157,6 +170,9 @@ export function buildSendTransaction(args: {
         script: bitcoin.address.toOutputScript(utxo.address, btcNetwork),
         value: BigInt(utxo.value),
       },
+      // Without an explicit sequence, bitcoinjs-lib uses 0xffffffff
+      // (final, no RBF). Only set the field when signalling.
+      ...(rbf ? { sequence: RBF_SEQUENCE } : {}),
     });
   }
   psbt.addOutput({ address: args.to, value: BigInt(amount) });
@@ -180,6 +196,7 @@ export function buildSendTransaction(args: {
       })),
       changeAddress: changeValue > 0 ? args.changeAddress : null,
       changeValue,
+      rbf: rbf === true,
     },
   };
 }
