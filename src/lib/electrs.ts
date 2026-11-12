@@ -133,7 +133,10 @@ export class ElectrsClient {
   }
 
   /**
-   * Fee rate for the nearest confirmation target. Falls back to
+   * Fee rate for the nearest confirmation target, as an integer
+   * nusan/vbyte: electrs answers floats (1.71...), but fee rates are
+   * integer throughout the spec (the guard is 1-546), so the raw
+   * estimate is rounded here, once, for every consumer. Falls back to
    * FALLBACK_FEE_RATE when the endpoint cannot be reached; the fallback
    * is this network's own default, never another network's data.
    */
@@ -141,7 +144,9 @@ export class ElectrsClient {
     try {
       const estimates = await this.getFeeEstimates();
       const rate = estimates["1"] ?? estimates["3"] ?? FALLBACK_FEE_RATE;
-      return typeof rate === "number" && rate > 0 ? rate : FALLBACK_FEE_RATE;
+      return typeof rate === "number" && rate > 0
+        ? Math.max(1, Math.round(rate))
+        : FALLBACK_FEE_RATE;
     } catch {
       return FALLBACK_FEE_RATE;
     }

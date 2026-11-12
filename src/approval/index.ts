@@ -18,6 +18,12 @@
 // call settles with that failure.
 
 import "../lib/globals";
+import {
+  formatAmount,
+  formatAmountValue,
+  parseDisplayUnit,
+  type DisplayUnit,
+} from "../lib/units";
 
 interface SendSummary {
   to: string;
@@ -54,7 +60,11 @@ interface ApprovalRequestView {
   psbtSummary?: PsbtSummary;
 }
 
-type InternalRequest = "getApprovalRequest" | "resolveApproval" | "vaultUnlock";
+type InternalRequest =
+  | "getApprovalRequest"
+  | "resolveApproval"
+  | "vaultUnlock"
+  | "getDisplayUnit";
 
 function call<T>(request: InternalRequest, payload: object = {}): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -107,18 +117,18 @@ function showError(message: string): void {
 }
 
 function networkNote(view: ApprovalRequestView): string {
-  return `Network: ${view.networkLabel} (${view.network}).`;
+  return `Jaringan: ${view.networkLabel} (${view.network}).`;
 }
 
 /**
  * The wallet itself, for approvals the popup starts (no dApp origin):
  * the background uses the sentinel "wallet", rendered here as
- * "This wallet".
+ * "Dompet ini".
  */
 const WALLET_ORIGIN = "wallet";
 
 function displayOrigin(origin: string): string {
-  return origin === WALLET_ORIGIN ? "This wallet" : origin;
+  return origin === WALLET_ORIGIN ? "Dompet ini" : origin;
 }
 
 async function load(): Promise<void> {
@@ -130,19 +140,34 @@ async function load(): Promise<void> {
     });
   } catch (error) {
     showError(
-      error instanceof Error ? error.message : "This request is no longer pending.",
+      error instanceof Error ? error.message : "Permintaan ini tidak lagi menunggu.",
     );
     return;
+  }
+  // Amounts follow the user's display unit (nusan by default). The
+  // unit is read after the request itself, so a failed read still
+  // leaves a usable approval window showing nusan.
+  let unit: DisplayUnit = "nusan";
+  try {
+    const result = await call<{ unit: DisplayUnit }>("getDisplayUnit");
+    unit = parseDisplayUnit(result.unit);
+  } catch {
+    // Keep the nusan default.
+  }
+  for (const suffix of document.querySelectorAll(".satuan")) {
+    suffix.textContent = unit === "nusan" ? "nusan" : "NUX";
   }
 
   setText(
     "networkBadge",
     view.network === "testnet" ? "TESTNET" : view.network.toUpperCase(),
   );
+  // The yellow testnet banner is testnet-only; on mainnet it hides.
+  el("testnetBanner").hidden = view.network !== "testnet";
 
   if (!view.hasVault) {
     showError(
-      "No wallet exists yet. Create one from the extension popup, then let the site ask again.",
+      "Belum ada dompet. Buat dari popup ekstensi, lalu minta situs bertanya lagi.",
     );
     return;
   }
@@ -160,11 +185,11 @@ async function load(): Promise<void> {
       setText("connectNetworkNote", networkNote(view));
       setText("connectError", "");
       if (view.alreadyConnected) {
-        setText("connectTitle", "This site is already connected");
-        setText("connectSubmit", "Continue");
+        setText("connectTitle", "Situs ini sudah terhubung");
+        setText("connectSubmit", "Lanjut");
       } else {
-        setText("connectTitle", "A site wants to connect");
-        setText("connectSubmit", "Connect");
+        setText("connectTitle", "Sebuah situs ingin terhubung");
+        setText("connectSubmit", "Hubungkan");
       }
       show("viewConnect");
       return;
@@ -172,23 +197,26 @@ async function load(): Promise<void> {
     case "send": {
       const summary = view.sendSummary;
       if (!summary) {
-        showError("The payment details are unavailable.");
+        showError("Rincian pembayaran tidak tersedia.");
         return;
       }
       setText("sendOrigin", displayOrigin(view.origin));
       setText("sendTo", summary.to);
-      setText("sendAmount", String(summary.amount));
-      setText("sendFee", `${summary.fee} (at ${summary.feeRate} nusan/vbyte)`);
-      setText("sendTotal", String(summary.total));
+      setText("sendAmount", formatAmountValue(summary.amount, unit));
+      setText(
+        "sendFee",
+        `${formatAmount(summary.fee, unit)} (dengan ${summary.feeRate} nusan/vbyte)`,
+      );
+      setText("sendTotal", formatAmountValue(summary.total, unit));
       setText(
         "sendChange",
         summary.changeAddress
-          ? `${summary.changeValue} to this wallet's change address`
-          : "0 (the remainder goes to the fee)",
+          ? `${formatAmount(summary.changeValue, unit)} ke alamat kembalian dompet ini`
+          : "0 (sisanya masuk ke fee)",
       );
       setText(
         "sendRbf",
-        summary.rbf ? "Yes — this transaction can be replaced" : "No",
+        summary.rbf ? "Ya — transaksi ini bisa diganti" : "Tidak",
       );
       setText("sendNetworkNote", networkNote(view));
       setText("sendError", "");
@@ -197,7 +225,7 @@ async function load(): Promise<void> {
     }
     case "signMessage": {
       if (view.message === undefined) {
-        showError("The message is unavailable.");
+        showError("Pesan tidak tersedia.");
         return;
       }
       setText("signOrigin", displayOrigin(view.origin));
@@ -211,21 +239,27 @@ async function load(): Promise<void> {
     case "sendPsbt": {
       const summary = view.psbtSummary;
       if (!summary) {
-        showError("The PSBT details are unavailable.");
+        showError("Rincian PSBT tidak tersedia.");
         return;
       }
       setText("psbtTitle",
-        view.kind === "signPsbt" ? "Sign this PSBT?" : "Sign and send this PSBT?");
+        view.kind === "signPsbt" ? "Tandatangani PSBT ini?" : "Tandatangani dan kirim PSBT ini?");
       setText("psbtSubmit",
-        view.kind === "signPsbt" ? "Sign" : "Sign and send");
+        view.kind === "signPsbt" ? "Tandatangani" : "Tandatangani dan kirim");
       setText("psbtOrigin", displayOrigin(view.origin));
-      setText("psbtTotalIn", String(summary.totalIn));
-      setText("psbtTotalOut", String(summary.totalOut));
-      setText("psbtFee", `${summary.fee} (implied rate ${summary.feeRate} nusan/vbyte)`);
+      setText("psbtTotalIn", formatAmountValue(summary.totalIn, unit));
+      setText("psbtTotalOut", formatAmountValue(summary.totalOut, unit));
+      setText(
+        "psbtFee",
+        `${formatAmount(summary.fee, unit)} (tarif tersirat ${summary.feeRate} nusan/vbyte)`,
+      );
       setText(
         "psbtOutputs",
         summary.outputs
-          .map((output) => `${output.address ?? "(unknown script)"} — ${output.value}`)
+          .map(
+            (output) =>
+              `${output.address ?? "(skrip tidak dikenal)"} — ${formatAmount(output.value, unit)}`,
+          )
           .join("\n"),
       );
       setText("psbtNetworkNote", networkNote(view));
@@ -248,7 +282,7 @@ async function handleUnlock(): Promise<void> {
   } catch (error) {
     setText(
       "unlockError",
-      error instanceof Error ? error.message : "Unlock failed.",
+      error instanceof Error ? error.message : "Membuka kunci gagal.",
     );
   } finally {
     button.disabled = false;
@@ -315,7 +349,7 @@ document.addEventListener("DOMContentLoaded", () => {
       button.addEventListener("click", () => void handleResolve(false, button)),
     );
   if (!requestId) {
-    showError("This window was opened without a request id.");
+    showError("Jendela ini dibuka tanpa id permintaan.");
     return;
   }
   void load();

@@ -1,131 +1,267 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
   <head>
     <meta charset="utf-8" />
     <title>NUX Connect</title>
     <style>
+      /* Electric-green cartoon style, from the team mockups
+         (mockups/popup.html + mockups/vault.html). */
+      @font-face {
+        font-family: "Baloo 2";
+        src: url("fonts/baloo2.woff2") format("woff2");
+        font-weight: 700 800;
+        font-display: swap;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
-        font-family: system-ui, sans-serif;
-        margin: 0;
-        padding: 16px;
-        width: 320px;
-        color: #10201a;
-        background: #eaf4ef;
+        font-family: "Baloo 2", "Comic Sans MS", "Chalkboard SE", system-ui, sans-serif;
+        width: 360px;
+        color: #062b12;
+        background: #00e65c;
+        /* Rounded outer frame, matching the 14px card radius: the
+           popup reads as a card, not a stiff rectangle. The header
+           rounds the top corners; this rounds the bottom ones. */
+        border-radius: 14px;
       }
       header {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        gap: 10px;
+        padding: 14px 16px;
+        background: #00c24e;
+        border-bottom: 4px solid #062b12;
+        border-radius: 14px 14px 0 0;
       }
-      h1 {
-        font-size: 16px;
-        margin: 0;
-        color: #0a5c42;
+      .koin {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        border: 3px solid #062b12;
+        box-shadow: 3px 3px 0 #062b12;
+        flex-shrink: 0;
       }
+      header h1 { font-size: 22px; line-height: 1; }
+      header small { font-size: 12px; font-weight: 700; opacity: 0.75; }
       .badge {
-        background: #d97706;
-        color: #fff;
+        margin-left: auto;
+        background: #ffd500;
+        border: 3px solid #062b12;
         border-radius: 999px;
-        padding: 2px 8px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.04em;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 900;
+        box-shadow: 2px 2px 0 #062b12;
       }
-      h2 {
-        font-size: 14px;
-        color: #0a5c42;
-        margin: 14px 0 6px;
+      .isi {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
       }
-      p, label {
-        font-size: 13px;
-        line-height: 1.45;
-      }
+      h2 { font-size: 16px; margin-bottom: 8px; }
+      p, label { font-size: 13px; line-height: 1.45; font-weight: 700; }
       input, textarea {
         width: 100%;
-        box-sizing: border-box;
         margin: 4px 0 10px;
-        padding: 8px;
-        border: 1px solid #b9d4c7;
-        border-radius: 8px;
+        padding: 12px 14px;
+        border: 3px solid #062b12;
+        border-radius: 14px;
         font: inherit;
+        font-weight: 700;
         background: #fff;
+        box-shadow: 4px 4px 0 #062b12;
       }
       textarea { resize: vertical; }
+      /* The mask dots on password fields render at the input's font
+         size; bump them up with tracking so they match the chunky
+         textfield theme (per the vault mockup). */
+      input[type="password"] {
+        font-size: 20px;
+        letter-spacing: 4px;
+      }
+      input[type="checkbox"] {
+        width: auto;
+        margin: 0 6px 0 0;
+        box-shadow: none;
+      }
       button {
-        border: 0;
-        border-radius: 8px;
-        padding: 8px 14px;
-        background: #0a5c42;
-        color: #fff;
+        border: 3px solid #062b12;
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: #ffd500;
+        color: #062b12;
         font: inherit;
-        font-weight: 600;
+        font-weight: 900;
+        font-size: 16px;
         cursor: pointer;
+        box-shadow: 4px 4px 0 #062b12;
       }
       button.secondary {
         background: #fff;
-        color: #0a5c42;
-        border: 1px solid #0a5c42;
+        color: #062b12;
       }
+      button.lebar { width: 100%; }
       button:disabled { opacity: 0.55; cursor: wait; }
-      .tabs { display: flex; gap: 8px; margin-top: 10px; }
+      .tabs { display: flex; gap: 10px; }
+      .tabs button { flex: 1; }
       .error {
         color: #b91c1c;
         font-size: 12.5px;
         min-height: 1em;
         margin: 6px 0;
       }
-      dl { margin: 10px 0; font-size: 13px; }
-      dt { color: #40695a; margin-top: 8px; }
-      dd { margin: 2px 0 0; font-weight: 600; word-break: break-all; }
       .mono { font-family: ui-monospace, monospace; font-size: 12px; }
       .words {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 4px 12px;
         background: #fff;
-        border: 1px solid #b9d4c7;
-        border-radius: 8px;
+        border: 3px solid #062b12;
+        border-radius: 14px;
         padding: 10px 12px;
         font-family: ui-monospace, monospace;
         font-size: 12.5px;
+        box-shadow: 4px 4px 0 #062b12;
       }
       .warn {
-        background: #fef3c7;
-        border: 1px solid #d97706;
-        border-radius: 8px;
-        padding: 8px 10px;
+        background: #fff3bf;
+        border: 3px solid #062b12;
+        border-radius: 14px;
+        padding: 10px 12px;
         font-size: 12.5px;
+        box-shadow: 4px 4px 0 #062b12;
       }
       .note {
         font-size: 12px;
-        color: #40695a;
-        border-top: 1px solid #cfe3da;
-        padding-top: 10px;
-        margin-top: 12px;
+        opacity: 0.75;
+        margin-top: 14px;
       }
       .version {
         font-size: 11px;
-        color: #40695a;
+        font-weight: 700;
         text-align: center;
-        border-top: 1px solid #cfe3da;
-        padding-top: 8px;
-        margin: 14px 0 0;
+        opacity: 0.75;
+        padding: 10px 16px 14px;
       }
-      input[type="checkbox"] {
-        width: auto;
-        margin: 0 6px 0 0;
+      .kartu-saldo {
+        background: #eafff1;
+        border: 3px solid #062b12;
+        border-radius: 18px;
+        padding: 14px;
+        box-shadow: 4px 4px 0 #062b12;
+        text-align: center;
       }
-      .activity {
-        font-size: 12.5px;
-        line-height: 1.5;
+      .kartu-saldo .label { font-size: 12px; font-weight: 800; letter-spacing: 1px; }
+      .kartu-saldo .angka { font-size: 30px; font-weight: 900; line-height: 1.15; }
+      .kartu-saldo .angka span { font-size: 16px; }
+      .kartu-saldo .rincian { font-size: 12px; font-weight: 700; margin-top: 4px; }
+      .kartu-saldo .rincian b { color: #00913a; }
+      .kartu-saldo .satuan {
+        margin-top: 8px;
+        font-size: 12px;
+        padding: 4px 12px;
       }
-      .activity p { margin: 4px 0; }
-      #lastSend { overflow-wrap: anywhere; }
-      #addressBookList { overflow-wrap: anywhere; }
-      #addressBookList button {
+      .alamat {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: #062b12;
+        color: #b6ffce;
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .alamat code {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .alamat button {
+        margin-left: auto;
+        background: #ffd500;
+        color: #062b12;
+        border: 2px solid #b6ffce;
+        border-radius: 8px;
+        padding: 3px 8px;
+        font-size: 11px;
+        font-weight: 900;
+        flex-shrink: 0;
+        box-shadow: none;
+      }
+      .tombol { display: flex; gap: 10px; }
+      .tombol button { flex: 1; font-size: 17px; }
+      .tombol .terima { background: #ffffff; }
+      .bagian {
+        background: #ffffff;
+        border: 3px solid #062b12;
+        border-radius: 16px;
+        padding: 12px;
+        box-shadow: 4px 4px 0 #062b12;
+      }
+      .bagian h2 { font-size: 13px; letter-spacing: 1px; margin-bottom: 8px; }
+      .bagian .activity { font-size: 12.5px; line-height: 1.5; }
+      .bagian .activity p { margin: 4px 0; }
+      .bagian button {
         width: auto;
         margin: 2px 4px 2px 0;
         padding: 4px 10px;
+        font-size: 13px;
+        box-shadow: 2px 2px 0 #062b12;
+      }
+      .bagian input { box-shadow: 2px 2px 0 #062b12; }
+      .rincian-kecil {
+        font-size: 11px;
+        font-weight: 700;
+        text-align: center;
+        opacity: 0.75;
+      }
+      .gembok {
+        width: 84px;
+        height: 84px;
+        border-radius: 50%;
+        background: #ffd500;
+        border: 4px solid #062b12;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 40px;
+        box-shadow: 5px 5px 0 #062b12;
+        margin: 8px auto;
+      }
+      .tengah { text-align: center; }
+      .qr-wrap {
+        background: #fff;
+        border: 3px solid #062b12;
+        border-radius: 16px;
+        padding: 14px;
+        box-shadow: 4px 4px 0 #062b12;
+        text-align: center;
+      }
+      .qr-wrap canvas { display: block; margin: 0 auto; }
+      .kembali {
+        align-self: flex-start;
+        background: #fff;
+        font-size: 13px;
+        padding: 6px 12px;
+        box-shadow: 2px 2px 0 #062b12;
+      }
+      #lastSend { overflow-wrap: anywhere; }
+      #addressBookList { overflow-wrap: anywhere; margin-bottom: 10px; }
+      #addressBookList p {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin: 8px 0;
+      }
+      #addressBookList p span { flex: 1 1 100%; }
+      #addressBookList p button { margin: 0; }
+      /* The activity list grows with every incoming coin; cap it and
+         scroll instead of letting the card eat the popup. */
+      #activityList {
+        max-height: 120px;
+        overflow-y: auto;
       }
       #marketInfo p { margin: 4px 0; }
       [hidden] { display: none !important; }
@@ -133,141 +269,187 @@
   </head>
   <body>
     <header>
-      <h1>NUX Connect</h1>
+      <img class="koin" src="icons/icon-48.png" alt="" />
+      <div>
+        <h1>NUX Connect</h1>
+        <small>Dompet Nusacoin</small>
+      </div>
       <span class="badge" id="networkBadge">TESTNET</span>
     </header>
 
+    <div class="isi">
     <section id="viewLoading">
-      <p>Loading…</p>
+      <p>Memuat…</p>
     </section>
 
     <section id="viewSetup" hidden>
       <div class="tabs">
-        <button id="tabCreate" type="button">Create wallet</button>
-        <button id="tabImport" type="button" class="secondary">Import</button>
+        <button id="tabCreate" type="button">Buat dompet</button>
+        <button id="tabImport" type="button" class="secondary">Impor</button>
       </div>
       <div id="paneCreate">
-        <h2>Create a new wallet</h2>
+        <h2>Buat dompet baru</h2>
         <p>
-          A 12-word recovery phrase is generated for you. Choose a
-          password of at least 8 characters; it encrypts the wallet in
-          this browser.
+          Frasa pemulihan 12 kata dibuat untukmu. Pilih kata sandi
+          minimal 8 karakter; kata sandi itu mengenkripsi dompet di
+          browser ini.
         </p>
       </div>
       <div id="paneImport" hidden>
-        <h2>Import a wallet</h2>
-        <p>Paste an existing 12-word BIP39 recovery phrase.</p>
+        <h2>Impor dompet</h2>
+        <p>Tempel frasa pemulihan BIP39 12 kata yang sudah ada.</p>
         <label>
-          Recovery phrase
+          Frasa pemulihan
           <textarea id="importMnemonic" rows="3" autocomplete="off"></textarea>
         </label>
       </div>
       <label>
-        Password
+        Kata sandi
         <input id="setupPassword" type="password" autocomplete="new-password" />
       </label>
       <label>
-        Confirm password
+        Ulangi kata sandi
         <input id="setupPasswordConfirm" type="password" autocomplete="new-password" />
       </label>
       <p class="error" id="setupError"></p>
-      <button id="setupSubmit" type="button">Continue</button>
-      <p class="note">Demo scope, testnet only. Mainnet is locked.</p>
+      <button id="setupSubmit" type="button" class="lebar">Lanjut</button>
+      <p class="note">Cakupan demo, testnet saja. Mainnet terkunci.</p>
     </section>
 
     <section id="viewMnemonic" hidden>
-      <h2>Save your recovery phrase</h2>
+      <h2>Simpan frasa pemulihanmu</h2>
       <p class="warn">
-        Write these 12 words down and keep them somewhere safe. Anyone
-        with the phrase controls the wallet, and it cannot be recovered
-        if lost. It is shown only this once.
+        Tulis 12 kata ini dan simpan di tempat yang aman. Siapa pun
+        yang memegang frasa ini menguasai dompet, dan dompet tidak bisa
+        dipulihkan kalau frasa hilang. Frasa hanya ditampilkan sekali
+        ini.
       </p>
       <div class="words" id="mnemonicWords"></div>
       <p style="margin-top: 12px">
-        <button id="mnemonicConfirm" type="button">I have saved it</button>
+        <button id="mnemonicConfirm" type="button" class="lebar">Sudah kusimpan</button>
       </p>
     </section>
 
     <section id="viewUnlock" hidden>
-      <h2>Wallet locked</h2>
+      <div class="tengah">
+        <div class="gembok">🔒</div>
+        <h2>Vault Terkunci</h2>
+        <p>Masukkan kata sandi untuk membuka dompetmu.</p>
+      </div>
       <label>
-        Password
+        Kata sandi
         <input id="unlockPassword" type="password" autocomplete="current-password" />
       </label>
       <p class="error" id="unlockError"></p>
-      <button id="unlockSubmit" type="button">Unlock</button>
-      <p class="note">
-        The vault locks automatically after 15 minutes without activity.
+      <button id="unlockSubmit" type="button" class="lebar">Buka Vault</button>
+      <p class="note tengah">
+        Vault terkunci otomatis setelah 15 menit tidak dipakai. Kunci
+        privat tidak pernah tersimpan — hanya diturunkan sesaat saat
+        menandatangani.
       </p>
     </section>
 
     <section id="viewWallet" hidden>
-      <dl>
-        <dt>Network</dt>
-        <dd id="networkName">—</dd>
-        <dt>Address (receive, index 0)</dt>
-        <dd class="mono" id="walletAddress">—</dd>
-        <dt>Confirmed balance (nusan)</dt>
-        <dd id="confirmedBalance">—</dd>
-        <dt>Unconfirmed balance (nusan)</dt>
-        <dd id="unconfirmedBalance">—</dd>
-        <dt>Chain tip height</dt>
-        <dd id="tipHeight">—</dd>
-        <dt>Fee rate (nusan/vbyte)</dt>
-        <dd id="feeRate">—</dd>
-      </dl>
-      <div id="marketInfo" hidden>
+      <section class="kartu-saldo">
+        <div class="label">SALDO KAMU</div>
+        <div class="angka"><span id="totalBalance">—</span> <span id="totalUnit">nusan</span></div>
+        <div class="rincian">Terkonfirmasi <b id="confirmedBalance">—</b> • Belum terkonfirmasi <span id="unconfirmedBalance">—</span></div>
+        <button id="unitToggle" type="button" class="satuan">Satuan: nusan</button>
+      </section>
+      <div class="alamat">
+        <code id="walletAddress">—</code>
+        <button id="homeCopy" type="button">SALIN</button>
+      </div>
+      <div class="tombol">
+        <button id="navSend" type="button">Kirim</button>
+        <button id="navReceive" type="button" class="terima">Terima</button>
+      </div>
+      <section class="bagian" id="marketInfo" hidden>
+        <h2>HARGA PASAR</h2>
         <p id="marketPrice">—</p>
         <p id="marketEquivalent" hidden>—</p>
         <p class="note" id="marketSource">—</p>
-      </div>
-      <button id="lockSubmit" type="button" class="secondary">Lock wallet</button>
-      <h2>Send</h2>
+      </section>
+      <section class="bagian">
+        <h2>SITUS TERHUBUNG</h2>
+        <div id="connectionsList">
+          <p>Belum ada situs terhubung.</p>
+        </div>
+      </section>
+      <section class="bagian">
+        <h2>AKTIVITAS</h2>
+        <label>
+          <input type="checkbox" id="notificationsToggle" />
+          Beri tahu aku tentang koin masuk
+        </label>
+        <div class="activity" id="activityList">
+          <p>Belum ada koin masuk.</p>
+        </div>
+        <p class="note" id="lastSend" hidden></p>
+      </section>
+      <section class="bagian">
+        <h2>BUKU ALAMAT</h2>
+        <div class="activity" id="addressBookList"></div>
+        <label>
+          Label
+          <input id="addressBookLabel" type="text" autocomplete="off" maxlength="50" />
+        </label>
+        <label>
+          Alamat
+          <input id="addressBookAddress" type="text" autocomplete="off" spellcheck="false" />
+        </label>
+        <p class="error" id="addressBookError"></p>
+        <p><button id="addressBookAdd" type="button">Tambah ke buku alamat</button></p>
+      </section>
+      <p class="rincian-kecil">
+        <span id="networkName">—</span> • Blok <span id="tipHeight">—</span> • Fee <span id="feeRate">—</span> nusan/vbyte
+      </p>
+      <button id="lockSubmit" type="button" class="secondary lebar">Kunci dompet</button>
+      <p class="note" id="walletNote">
+        Dompet testnet. Pembayaran masuk diperiksa kira-kira tiap satu
+        menit selama browser berjalan, dan hanya selama browser
+        berjalan; tidak ada yang bergerak tanpa persetujuanmu.
+      </p>
+    </section>
+
+    <section id="viewSend" hidden>
+      <button id="sendBack" type="button" class="kembali">← Kembali</button>
+      <h2>Kirim</h2>
       <label>
-        To address
+        Alamat tujuan
         <input id="sendTo" type="text" autocomplete="off" spellcheck="false" />
       </label>
       <label>
-        Amount (nusan)
+        <span id="sendAmountLabel">Jumlah (nusan)</span>
         <input id="sendAmount" type="text" inputmode="numeric" autocomplete="off" />
       </label>
       <label>
         <input type="checkbox" id="sendRbf" />
-        Signal replaceable (RBF)
+        Tandai bisa diganti (RBF)
       </label>
       <p class="error" id="sendError"></p>
-      <p><button id="sendSubmit" type="button">Send</button></p>
-      <p class="note" id="lastSend" hidden></p>
-      <h2>Address book</h2>
-      <div class="activity" id="addressBookList"></div>
-      <label>
-        Label
-        <input id="addressBookLabel" type="text" autocomplete="off" maxlength="50" />
-      </label>
-      <label>
-        Address
-        <input id="addressBookAddress" type="text" autocomplete="off" spellcheck="false" />
-      </label>
-      <p class="error" id="addressBookError"></p>
-      <p><button id="addressBookAdd" type="button">Add to address book</button></p>
-      <h2>Connected sites</h2>
-      <div id="connectionsList">
-        <p>No sites connected yet.</p>
+      <p><button id="sendSubmit" type="button" class="lebar">Kirim</button></p>
+    </section>
+
+    <section id="viewReceive" hidden>
+      <button id="receiveBack" type="button" class="kembali">← Kembali</button>
+      <h2>Terima</h2>
+      <div class="qr-wrap">
+        <canvas id="receiveQr" width="200" height="200"></canvas>
       </div>
-      <h2>Incoming coins</h2>
-      <label>
-        <input type="checkbox" id="notificationsToggle" />
-        Notify me about incoming coins
-      </label>
-      <div class="activity" id="activityList">
-        <p>No incoming coins yet.</p>
+      <div class="alamat">
+        <code id="receiveAddress">—</code>
+        <button id="receiveCopy" type="button">SALIN</button>
       </div>
-      <p class="note" id="walletNote">
-        Testnet wallet. Incoming payments are checked about once a
-        minute while the browser is running, and only while the browser
-        is running; nothing moves without your approval.
+      <p><button id="receiveRefresh" type="button">Alamat baru</button></p>
+      <p class="error" id="receiveError"></p>
+      <p class="note" id="receiveNote">
+        Berikan alamat ini kepada pembayar. Setiap alamat baru menjaga
+        privasi — saldo dari semua alamatmu tetap terkumpul di dompet
+        ini.
       </p>
     </section>
+    </div>
 
     <p class="version" id="versionText">NUX Connect</p>
 
