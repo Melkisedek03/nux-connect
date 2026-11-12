@@ -221,6 +221,27 @@ async function refresh(): Promise<void> {
   }
 }
 
+/** Live refresh: while the wallet view is open, re-read the status
+ * every few seconds so the balance, tip height, and activity list
+ * track new blocks without reopening the popup. Skipped while a
+ * refresh is already in flight, and paused on the setup/unlock
+ * views (nothing there changes on its own). The interval dies with
+ * the popup document; no cleanup is needed. */
+const POPUP_REFRESH_MS = 5000;
+let refreshInFlight = false;
+
+async function refreshGuarded(): Promise<void> {
+  if (refreshInFlight) return;
+  refreshInFlight = true;
+  try {
+    await refresh();
+  } catch {
+    // The next tick retries; a failed refresh must not stop the interval.
+  } finally {
+    refreshInFlight = false;
+  }
+}
+
 async function handleSetup(): Promise<void> {
   const password = el<HTMLInputElement>("setupPassword").value;
   const confirm = el<HTMLInputElement>("setupPasswordConfirm").value;
@@ -287,6 +308,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Show the running version in the footer, so a field test can
   // confirm at a glance which build is loaded.
   setText("versionText", `NUX Connect v${chrome.runtime.getManifest().version}`);
+  setInterval(() => {
+    if (!el("viewWallet").hidden) void refreshGuarded();
+  }, POPUP_REFRESH_MS);
   el("tabCreate").addEventListener("click", () => setSetupMode("create"));
   el("tabImport").addEventListener("click", () => setSetupMode("import"));
   el("setupSubmit").addEventListener("click", () => void handleSetup());
