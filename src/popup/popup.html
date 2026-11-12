@@ -18,6 +18,10 @@
         width: 360px;
         color: #062b12;
         background: #00e65c;
+        /* Rounded outer frame, matching the 14px card radius: the
+           popup reads as a card, not a stiff rectangle. The header
+           rounds the top corners; this rounds the bottom ones. */
+        border-radius: 14px;
       }
       header {
         display: flex;
@@ -26,6 +30,7 @@
         padding: 14px 16px;
         background: #00c24e;
         border-bottom: 4px solid #062b12;
+        border-radius: 14px 14px 0 0;
       }
       .koin {
         width: 44px;
