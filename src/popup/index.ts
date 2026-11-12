@@ -284,6 +284,9 @@ async function handleUnlock(): Promise<void> {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Show the running version in the footer, so a field test can
+  // confirm at a glance which build is loaded.
+  setText("versionText", `NUX Connect v${chrome.runtime.getManifest().version}`);
   el("tabCreate").addEventListener("click", () => setSetupMode("create"));
   el("tabImport").addEventListener("click", () => setSetupMode("import"));
   el("setupSubmit").addEventListener("click", () => void handleSetup());
