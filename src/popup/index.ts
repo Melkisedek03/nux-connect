@@ -69,6 +69,8 @@ type InternalRequest =
   | "refreshReceiveAddress"
   | "getDisplayUnit"
   | "setDisplayUnit"
+  | "getNetwork"
+  | "setNetwork"
   | "disconnectOrigin";
 
 interface MarketInfo {
@@ -159,6 +161,7 @@ const VIEWS = [
   "viewSend",
   "viewReview",
   "viewReceive",
+  "viewNetworkConfirm",
 ] as const;
 
 function show(view: (typeof VIEWS)[number]): void {
@@ -182,6 +185,21 @@ let displayUnit: DisplayUnit = "nusan";
  * figure. Updated on every successful status read; null until the
  * first one lands. */
 let lastConfirmedBalance: number | null = null;
+
+/** The active network id, from the last status read (testnet until
+ * the first one lands). The review's network row and the badge
+ * switch read it; it only changes through a status read, so it
+ * always matches what the popup shows. */
+let currentNetwork = "testnet";
+
+/** Paint the header badge for a network: the label plus the
+ * per-network color — red for testnet, yellow for mainnet. */
+function applyNetworkBadge(network: string): void {
+  currentNetwork = network;
+  const badge = el("networkBadge");
+  badge.textContent = network === "testnet" ? "TESTNET" : network.toUpperCase();
+  badge.className = `badge ${network === "testnet" ? "testnet" : "mainnet"}`;
+}
 
 /** Apply the current unit to the static labels: the toggle button,
  * the hero unit, the send form's label, and the send field's
@@ -217,6 +235,73 @@ async function handleUnitToggle(): Promise<void> {
   }
 }
 
+/** Whether the one-time mainnet acknowledgment is already stored
+ * (loaded once at startup; set locally after the user confirms).
+ * The background enforces the acknowledgment too — this flag only
+ * decides whether the card needs to show at all. */
+let mainnetAcknowledged = false;
+
+/** The view the user was on before the network-confirm card, so
+ * Batal returns there instead of always landing home. */
+let viewBeforeNetworkConfirm: (typeof VIEWS)[number] | null = null;
+
+/** Switch to the other network. The background rejects the wallet's
+ * pending review (it belongs to the old network), so the local
+ * review state is cleared too; the form keeps its values — a
+ * recipient address for the other network fails the draft's
+ * validation with a clear error, and the review names its network. */
+async function switchNetwork(
+  target: string,
+  acknowledge: boolean,
+): Promise<void> {
+  const result = await call<{ network: string }>("setNetwork", {
+    network: target,
+    acknowledge,
+  });
+  reviewPendingId = null;
+  applyNetworkBadge(result.network);
+  await refresh();
+}
+
+async function handleNetworkBadgeClick(): Promise<void> {
+  const target = currentNetwork === "testnet" ? "mainnet" : "testnet";
+  if (target === "mainnet" && !mainnetAcknowledged) {
+    // First mainnet switch needs the one-time acknowledgment; the
+    // card below collects it. Later switches go straight through.
+    viewBeforeNetworkConfirm = currentView();
+    setText("networkConfirmError", "");
+    show("viewNetworkConfirm");
+    return;
+  }
+  try {
+    await switchNetwork(target, false);
+  } catch {
+    // The switch failed; the badge still shows the old network.
+  }
+}
+
+async function handleNetworkConfirm(): Promise<void> {
+  const button = el<HTMLButtonElement>("networkConfirmOk");
+  setText("networkConfirmError", "");
+  button.disabled = true;
+  try {
+    await switchNetwork("mainnet", true);
+    mainnetAcknowledged = true;
+  } catch (error) {
+    setText(
+      "networkConfirmError",
+      error instanceof Error ? error.message : "Tidak bisa pindah jaringan.",
+    );
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function handleNetworkConfirmCancel(): void {
+  show(viewBeforeNetworkConfirm ?? "viewWallet");
+  viewBeforeNetworkConfirm = null;
+}
+
 function setSetupMode(mode: "create" | "import"): void {
   setupMode = mode;
   el("paneCreate").hidden = mode !== "create";
@@ -227,10 +312,7 @@ function setSetupMode(mode: "create" | "import"): void {
 }
 
 function renderWallet(status: StatusResult): void {
-  setText(
-    "networkBadge",
-    status.network === "testnet" ? "TESTNET" : status.network.toUpperCase(),
-  );
+  applyNetworkBadge(status.network);
   setText("networkName", `${status.networkLabel} (${status.network})`);
   // A failed refresh returns null figures: keep the last-known values
   // instead of blanking them to dashes. The initial "—" in the markup
@@ -787,6 +869,14 @@ let reviewPendingId: string | null = null;
 function showReview(pending: PendingWalletSend): void {
   reviewPendingId = pending.id;
   const summary = pending.summary;
+  // The network the send executes on. A switch kills the review
+  // (the pending belongs to the old network), so the active network
+  // shown here is always the draft's network while the review is
+  // visible.
+  setText(
+    "reviewNetwork",
+    currentNetwork === "testnet" ? "Testnet — koin uji" : "Mainnet — dana sungguhan",
+  );
   setText("reviewTo", summary.to);
   setText("reviewAmount", formatAmount(summary.amount, displayUnit));
   setText(
@@ -908,10 +998,7 @@ async function refresh(): Promise<void> {
   // Opening the popup clears the incoming-coins badge (locked rule).
   void call("notificationsOpened").catch(() => {});
   if (currentView() !== viewBefore) return;
-  setText(
-    "networkBadge",
-    status.network === "testnet" ? "TESTNET" : status.network.toUpperCase(),
-  );
+  applyNetworkBadge(status.network);
   if (!status.hasVault) {
     setSetupMode("create");
     show("viewSetup");
@@ -1041,6 +1128,9 @@ document.addEventListener("DOMContentLoaded", () => {
     void call("vaultLock").then(() => refresh());
   });
   el("unitToggle").addEventListener("click", () => void handleUnitToggle());
+  el("networkBadge").addEventListener("click", () => void handleNetworkBadgeClick());
+  el("networkConfirmOk").addEventListener("click", () => void handleNetworkConfirm());
+  el("networkConfirmCancel").addEventListener("click", () => handleNetworkConfirmCancel());
   el("navSend").addEventListener("click", () => show("viewSend"));
   el("navReceive").addEventListener("click", () => show("viewReceive"));
   el("sendBack").addEventListener("click", () => show("viewWallet"));
@@ -1082,6 +1172,17 @@ document.addEventListener("DOMContentLoaded", () => {
       displayUnit = parseDisplayUnit(result.unit);
     } catch {
       displayUnit = "nusan";
+    }
+    // The mainnet acknowledgment flag decides whether the badge
+    // switch to mainnet shows its confirmation card.
+    try {
+      const network = await call<{
+        network: string;
+        mainnetAcknowledged: boolean;
+      }>("getNetwork");
+      mainnetAcknowledged = network.mainnetAcknowledged === true;
+    } catch {
+      mainnetAcknowledged = false;
     }
     applyDisplayUnit();
     try {

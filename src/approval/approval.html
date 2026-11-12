@@ -62,6 +62,10 @@
         font-weight: 900;
         box-shadow: 2px 2px 0 #062b12;
       }
+      /* Red shouts on testnet, yellow stays calm on mainnet — the
+         same rule as the popup badge. The banner below follows it. */
+      .badge.mainnet { background: #ffd500; color: #062b12; }
+      .badge.testnet { background: #e53935; color: #fff; }
       .pita {
         background: #ffd500;
         border-bottom: 4px solid #062b12;
@@ -71,6 +75,8 @@
         text-align: center;
         letter-spacing: 1px;
       }
+      .pita.mainnet { background: #ffd500; color: #062b12; }
+      .pita.testnet { background: #e53935; color: #fff; }
       .isi {
         padding: 16px;
         display: flex;
@@ -216,7 +222,7 @@
       </div>
       <span class="badge" id="networkBadge">TESTNET</span>
     </header>
-    <div class="pita" id="testnetBanner">⚠ TESTNET — BUKAN DANA SUNGGUHAN ⚠</div>
+    <div class="pita testnet" id="networkBanner">⚠ TESTNET — BUKAN DANA SUNGGUHAN ⚠</div>
 
     <div class="isi">
     <section id="viewLoading">

@@ -25,12 +25,6 @@ export interface NuxNetwork {
   /** Esplora-style REST base URL of the electrs instance for this network. */
   electrsBaseUrl: string;
   dustLimit: number;
-  /**
-   * A locked network is fully configured but disabled. Mainnet stays
-   * locked until the testnet completion criteria pass and a security
-   * audit is complete (testnet-first rule).
-   */
-  locked: boolean;
 }
 
 export const MAINNET: NuxNetwork = {
@@ -43,7 +37,6 @@ export const MAINNET: NuxNetwork = {
   wif: 0x57,
   electrsBaseUrl: "https://apinux.taobot.org",
   dustLimit: 546,
-  locked: true,
 };
 
 export const TESTNET: NuxNetwork = {
@@ -56,13 +49,37 @@ export const TESTNET: NuxNetwork = {
   wif: 0xef,
   electrsBaseUrl: "https://apinuxtest.taobot.org",
   dustLimit: 546,
-  locked: false,
 };
 
 export const NETWORKS: Record<NuxNetwork["id"], NuxNetwork> = {
   mainnet: MAINNET,
   testnet: TESTNET,
 };
+
+/** The active network is a user setting in chrome.storage.local,
+ * owned by the background like every other setting; the popup
+ * switches it through an internal message. Testnet stays the
+ * default: a new user lands on testnet, and mainnet is an explicit
+ * switch (with a one-time acknowledgment on the first switch). */
+export const ACTIVE_NETWORK_KEY = "activeNetwork";
+
+/** Anything that is not exactly "mainnet" reads as the default
+ * testnet, so a missing or corrupted stored value never lands the
+ * user on mainnet by accident. */
+export function parseNetworkId(value: unknown): NuxNetwork["id"] {
+  return value === "mainnet" ? "mainnet" : "testnet";
+}
+
+export async function readActiveNetworkId(): Promise<NuxNetwork["id"]> {
+  const stored = await chrome.storage.local.get([ACTIVE_NETWORK_KEY]);
+  return parseNetworkId(stored[ACTIVE_NETWORK_KEY]);
+}
+
+export async function writeActiveNetworkId(
+  id: NuxNetwork["id"],
+): Promise<void> {
+  await chrome.storage.local.set({ [ACTIVE_NETWORK_KEY]: id });
+}
 
 /** The MVP is testnet-first: testnet is the default and active network. */
 export const DEFAULT_NETWORK_ID: NuxNetwork["id"] = "testnet";
