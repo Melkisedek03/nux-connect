@@ -105,6 +105,14 @@ async function fetchWithRetry(
 export class ElectrsClient {
   constructor(private readonly network: NuxNetwork) {}
 
+  /** The network this client talks to. Callers that build from a
+   * client (drafts, cache syncs) take their network from here, so a
+   * network switch mid-operation cannot mix one network's UTXOs
+   * into another network's transaction. */
+  getNetwork(): NuxNetwork {
+    return this.network;
+  }
+
   private async getText(path: string): Promise<string> {
     const response = await fetchWithRetry(
       `${this.network.electrsBaseUrl}${path}`,

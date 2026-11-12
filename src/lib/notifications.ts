@@ -49,6 +49,9 @@ export interface ActivityEntry {
   status: ActivityStatus;
   firstSeenAt: number;
   confirmedAt?: number;
+  /** The network the arrival was seen on. Entries recorded before
+   * this field existed have no network and read as testnet. */
+  network?: NuxNetwork["id"];
 }
 
 export interface NotificationCheckResult {
@@ -76,10 +79,15 @@ async function saveSeen(seen: Record<string, ActivityEntry>): Promise<void> {
   await chrome.storage.local.set({ [SEEN_KEY]: next });
 }
 
-/** The activity list, newest first. */
-export async function getActivityEntries(): Promise<ActivityEntry[]> {
+/** The activity list for one network, newest first. Entries
+ * recorded before the network field existed read as testnet. */
+export async function getActivityEntries(
+  network: NuxNetwork["id"],
+): Promise<ActivityEntry[]> {
   const seen = await loadSeen();
-  return Object.values(seen).sort((a, b) => b.firstSeenAt - a.firstSeenAt);
+  return Object.values(seen)
+    .filter((entry) => (entry.network ?? "testnet") === network)
+    .sort((a, b) => b.firstSeenAt - a.firstSeenAt);
 }
 
 export async function isNotificationsEnabled(): Promise<boolean> {
@@ -245,6 +253,7 @@ export async function runNotificationCheck(args: {
             ? "confirmed"
             : "pending",
         firstSeenAt: Date.now(),
+        network: network.id,
       };
       seen[key] = entry;
       if (!internal) {
@@ -266,7 +275,9 @@ export async function runNotificationCheck(args: {
 
   await saveSeen(seen);
   const pendingCount = Object.values(seen).filter(
-    (entry) => entry.status === "pending",
+    (entry) =>
+      entry.status === "pending" &&
+      (entry.network ?? "testnet") === network.id,
   ).length;
   if (enabled) {
     await setBadge(pendingCount);

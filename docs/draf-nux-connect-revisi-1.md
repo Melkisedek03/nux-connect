@@ -12,7 +12,7 @@ Ringkasan keputusan yang masuk revisi ini:
 | 4 | Gerbang izin origin untuk semua method | Disetujui 2026-11-11 |
 | 5 | Pustaka dikunci: bitcoinjs-lib | Diputuskan 2026-11-11 (battle-tested) |
 | 6 | Parameter testnet dilengkapi dari chainparams Core | Dilengkapi 2026-11-11, terverifikasi dari source |
-| 7 | MVP digeser testnet-first (WAJIB) | Diputuskan 2026-11-11 |
+| 7 | MVP digeser testnet-first (WAJIB); mainnet dibuka lewat toggle (M12) | Diputuskan 2026-11-11; diamandemen 2026-11-13 |
 | 8 | Notifikasi koin masuk masuk ruang lingkup MVP | Disetujui 2026-11-11 |
 | 9 | Saldo terkonfirmasi = >= 1 konfirmasi | Disahkan 2026-11-11 |
 | 10 | Pagar feeRate kiriman dApp: maksimum 546 nusan/vbyte | Disahkan 2026-11-11 (rumusan tarif; versi "total fee" sempat tertulis karena salah tulis dan sudah ditarik kembali) |
@@ -179,6 +179,38 @@ Catatan yang tidak berubah dan tidak tertukar:
 - Peringatan "dana kecil" di UI berubah konteks menjadi penanda jaringan
   TESTNET yang mencolok, supaya tidak ada pengguna yang mengira saldo
   testnet adalah dana sungguhan — dan sebaliknya saat mainnet kelak dibuka.
+
+**Amandemen 2026-11-13 (Milestone 12) — mainnet dibuka lewat toggle jaringan:**
+
+> Kunci mainnet dicabut: kedua jaringan kini tersedia lewat toggle di
+> popup (lencana jaringan di header). Lencana hanya berfungsi sebagai
+> toggle di layar kunci — dompet harus dikunci dulu untuk berganti
+> jaringan, supaya tidak ada perpindahan di tengah kirim, review,
+> atau saldo yang sedang tampil. Testnet tetap menjadi jaringan
+> bawaan — pengguna baru mendarat di testnet, dan mainnet adalah
+> perpindahan eksplisit. Perpindahan pertama ke mainnet memerlukan
+> pengakuan satu kali bahwa mainnet memakai dana sungguhan; pengakuan
+> itu disimpan dan tidak diminta lagi.
+>
+> Penanda jaringan: lencana dan pita berwarna merah di testnet
+> ("TESTNET — BUKAN DANA SUNGGUHAN") dan kuning di mainnet
+> ("MAINNET — DANA SUNGGUHAN"). Kedua keadaan selalu berlabel teks,
+> tidak hanya warna.
+>
+> Setiap permintaan persetujuan terikat pada jaringan saat ia dibuat:
+> eksekusi memakai jaringan permintaan itu, bukan jaringan aktif —
+> sehingga perpindahan jaringan saat jendela persetujuan terbuka tidak
+> dapat mengalihkan transaksi ke jaringan lain. Kiriman dari popup
+> sendiri (review inline) tidak bertahan melewati perpindahan: ia
+> dibatalkan saat jaringan berpindah. Daftar aktivitas dan catatan
+> kirim terakhir difilter per jaringan.
+>
+> Keputusan ini menggantikan gerbang "kriteria testnet + audit" pada
+> butir ini: audit keamanan formal belum dilakukan saat mainnet
+> dibuka, dan pencabutan gerbang itu adalah keputusan eksplisit.
+> `nux_getNetwork` mengembalikan jaringan aktif, dan perpindahan
+> jaringan mengabarkan `networkChanged` lalu `accountsChanged` ke
+> situs yang terhubung.
 
 ## Butir 8 — Notifikasi koin masuk (MENAMBAH fitur ke ruang lingkup MVP) — Disetujui 2026-11-11
 

@@ -195,8 +195,17 @@ async function load(): Promise<void> {
     "networkBadge",
     view.network === "testnet" ? "TESTNET" : view.network.toUpperCase(),
   );
-  // The yellow testnet banner is testnet-only; on mainnet it hides.
-  el("testnetBanner").hidden = view.network !== "testnet";
+  el("networkBadge").className =
+    `badge ${view.network === "testnet" ? "testnet" : "mainnet"}`;
+  // The banner names the request's own network: red on testnet
+  // ("not real money"), yellow on mainnet ("real funds").
+  const banner = el("networkBanner");
+  banner.className =
+    `pita ${view.network === "testnet" ? "testnet" : "mainnet"}`;
+  banner.textContent =
+    view.network === "testnet"
+      ? "⚠ TESTNET — BUKAN DANA SUNGGUHAN ⚠"
+      : "MAINNET — DANA SUNGGUHAN";
 
   if (!view.hasVault) {
     showError(

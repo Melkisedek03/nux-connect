@@ -16,10 +16,10 @@
 //   receives the freshly generated mnemonic exactly once (at creation)
 //   and addresses afterwards; signing keys are derived transiently from
 //   the session-held mnemonic at approval time and never stored.
-// - Fan provider events (accountsChanged) out to the tabs an origin is
-//   known to run in. Events are a courtesy only: every read is still
-//   gated against the stored state, so a missed event can never leak
-//   an address.
+// - Fan provider events (accountsChanged, networkChanged) out to the
+//   tabs an origin is known to run in. Events are a courtesy only:
+//   every read is still gated against the stored state, so a missed
+//   event can never leak an address.
 // - Serve popup status: network, tip height, fee rate, and — when a
 //   wallet exists — the primary address and its balances, the balances
 //   from the persistent offline UTXO cache (synced from the active
@@ -41,7 +41,12 @@ import {
 import { ElectrsClient } from "../lib/electrs";
 import { derivePrivateKey, primaryAddress } from "../lib/keys";
 import { fetchMarketInfo, type MarketInfo } from "../lib/market";
-import { DEFAULT_NETWORK_ID, getNetwork, type NuxNetwork } from "../lib/networks";
+import {
+  getNetwork,
+  readActiveNetworkId,
+  writeActiveNetworkId,
+  type NuxNetwork,
+} from "../lib/networks";
 import {
   ERROR_INVALID_PARAMS,
   ERROR_UNAUTHORIZED,
@@ -112,18 +117,29 @@ import {
 const POLL_ALARM = "nux-connect-poll";
 const ERROR_SERVER = -32000;
 
-function activeNetwork(): NuxNetwork {
-  // Testnet-first: the active network is the default network. Network
-  // switching arrives together with mainnet enablement, which is gated
-  // behind the testnet completion criteria and a security audit.
-  return getNetwork(DEFAULT_NETWORK_ID);
+/** The active network, from the stored user setting (testnet by
+ * default). Callers that build from a client take their network
+ * from the client instead, so a switch mid-operation cannot mix
+ * one network's UTXOs into another network's transaction. */
+async function activeNetwork(): Promise<NuxNetwork> {
+  return getNetwork(await readActiveNetworkId());
 }
 
 /** Primary address of the wallet on the active network, if a vault exists. */
 async function walletPrimaryAddress(): Promise<string | null> {
   const publics = await loadAccountPublics();
   if (!publics) return null;
-  return primaryAddress(publics[activeNetwork().id], activeNetwork());
+  const network = await activeNetwork();
+  return primaryAddress(publics[network.id], network);
+}
+
+/** Primary address of the wallet on one network, if a vault exists. */
+async function walletPrimaryAddressOn(
+  network: NuxNetwork,
+): Promise<string | null> {
+  const publics = await loadAccountPublics();
+  if (!publics) return null;
+  return primaryAddress(publics[network.id], network);
 }
 
 // ---------------------------------------------------------------------------
@@ -147,11 +163,10 @@ const WALLET_CACHE_STALE_MS = 60_000;
 
 let walletSyncPromise: Promise<WalletCacheRecord> | null = null;
 
-async function requireWalletPublics(): Promise<{
+async function requireWalletPublics(network: NuxNetwork): Promise<{
   publics: AccountPublics;
   address: string;
 }> {
-  const network = activeNetwork();
   const publics = await loadAccountPublics();
   if (!publics) {
     throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
@@ -170,8 +185,8 @@ async function syncWalletCache(
   if (walletSyncPromise) return walletSyncPromise;
   walletSyncPromise = (async () => {
     try {
-      const network = activeNetwork();
-      const { publics, address } = await requireWalletPublics();
+      const network = client.getNetwork();
+      const { publics, address } = await requireWalletPublics(network);
       const state = await discoverWallet(
         client,
         publics[network.id],
@@ -226,8 +241,8 @@ async function syncWalletCache(
  */
 async function refreshWalletCacheInBackground(): Promise<void> {
   try {
-    const network = activeNetwork();
-    const { address } = await requireWalletPublics();
+    const network = await activeNetwork();
+    const { address } = await requireWalletPublics(network);
     const cached = await readWalletCache(network.id, address);
     if (cached && Date.now() - cached.syncedAt < WALLET_CACHE_STALE_MS) {
       return;
@@ -244,8 +259,8 @@ async function refreshWalletCacheInBackground(): Promise<void> {
  * background refresh), a full sync only when no record exists.
  */
 async function getWalletState(client: ElectrsClient): Promise<WalletState> {
-  const network = activeNetwork();
-  const { address } = await requireWalletPublics();
+  const network = client.getNetwork();
+  const { address } = await requireWalletPublics(network);
   const cached = await readWalletCache(network.id, address);
   if (cached) return cached.state;
   const record = await syncWalletCache(client);
@@ -260,8 +275,8 @@ async function getWalletState(client: ElectrsClient): Promise<WalletState> {
 async function getCachedBalances(
   client: ElectrsClient,
 ): Promise<{ confirmed: number; unconfirmed: number }> {
-  const network = activeNetwork();
-  const { address } = await requireWalletPublics();
+  const network = client.getNetwork();
+  const { address } = await requireWalletPublics(network);
   const cached = await readWalletCache(network.id, address);
   if (cached) {
     if (Date.now() - cached.syncedAt >= WALLET_CACHE_STALE_MS) {
@@ -273,11 +288,16 @@ async function getCachedBalances(
   return { confirmed: record.confirmed, unconfirmed: record.unconfirmed };
 }
 
-/** Optimistically apply an own broadcast to the persistent cache. */
-async function applyBroadcastToCache(summary: SendSummary): Promise<void> {
+/** Optimistically apply an own broadcast to the persistent cache of
+ * the network the transaction was built for — which may not be the
+ * active network anymore if the user switched while the approval
+ * was pending. */
+async function applyBroadcastToCache(
+  summary: SendSummary,
+  network: NuxNetwork,
+): Promise<void> {
   try {
-    const network = activeNetwork();
-    const { address } = await requireWalletPublics();
+    const { address } = await requireWalletPublics(network);
     const cached = await readWalletCache(network.id, address);
     if (!cached) return;
     await writeWalletCache(
@@ -329,7 +349,7 @@ async function buildVerifiedDraft(
     rbf?: boolean;
   },
 ): Promise<{ draft: SendDraft; state: WalletState }> {
-  const network = activeNetwork();
+  const network = client.getNetwork();
   const build = (state: WalletState): SendDraft =>
     buildSendTransaction({
       utxos: state.utxos,
@@ -468,6 +488,21 @@ async function emitAccountsChangedEverywhere(): Promise<void> {
   }
 }
 
+async function emitNetworkChanged(origin: string): Promise<void> {
+  const network = await activeNetwork();
+  const known = await loadKnownTabs();
+  for (const tabId of known[origin] ?? []) {
+    sendEventToTab(tabId, origin, "networkChanged", [network.id]);
+  }
+}
+
+async function emitNetworkChangedEverywhere(): Promise<void> {
+  const known = await loadKnownTabs();
+  for (const origin of Object.keys(known)) {
+    await emitNetworkChanged(origin);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Approvals
 //
@@ -489,6 +524,11 @@ interface PendingRequest {
   id: string;
   origin: string;
   kind: ApprovalKind;
+  /** The network the request was built on. Execution always uses
+   * this network, never the active one: the user may switch
+   * networks while an approval is pending, and what was shown is
+   * what executes. */
+  network: NuxNetwork;
   windowId: number | null;
   settled: boolean;
   resolve: (value: unknown) => void;
@@ -567,12 +607,14 @@ const WALLET_ORIGIN = "wallet";
 function createPending(
   origin: string,
   kind: ApprovalKind,
+  network: NuxNetwork,
   extras: ApprovalExtras,
 ): { pending: PendingRequest; promise: Promise<unknown> } {
   const pending: PendingRequest = {
     id: crypto.randomUUID(),
     origin,
     kind,
+    network,
     windowId: null,
     settled: false,
     resolve: () => {},
@@ -592,9 +634,10 @@ async function openApprovalWindow(
   origin: string,
   kind: ApprovalKind,
   tabId: number | undefined,
+  network: NuxNetwork,
   extras: ApprovalExtras,
 ): Promise<unknown> {
-  const { pending, promise } = createPending(origin, kind, extras);
+  const { pending, promise } = createPending(origin, kind, network, extras);
   await rememberTab(origin, tabId);
 
   try {
@@ -766,7 +809,13 @@ async function handleRequestAccounts(
     return accounts;
   }
 
-  return openApprovalWindow(origin, "connect", tabId, {});
+  return openApprovalWindow(
+    origin,
+    "connect",
+    tabId,
+    await activeNetwork(),
+    {},
+  );
 }
 
 async function handleSendTransaction(
@@ -778,7 +827,7 @@ async function handleSendTransaction(
   if (pendingByOrigin.has(origin)) throw busyError();
   const { to, amount, feeRate: givenRate } = parseSendParams(params);
 
-  const network = activeNetwork();
+  const network = await activeNetwork();
   const client = new ElectrsClient(network);
   const networkRate = await client.getFeeRate();
   const feeRate =
@@ -802,7 +851,7 @@ async function handleSendTransaction(
       }`,
     );
   }
-  return openApprovalWindow(origin, "send", tabId, {
+  return openApprovalWindow(origin, "send", tabId, network, {
     sendDraft: draft,
     sendOwnership: ownershipMap(state),
   });
@@ -828,7 +877,13 @@ async function handleSignMessage(
       "The message is too long to sign.",
     );
   }
-  return openApprovalWindow(origin, "signMessage", tabId, { message });
+  return openApprovalWindow(
+    origin,
+    "signMessage",
+    tabId,
+    await activeNetwork(),
+    { message },
+  );
 }
 
 async function handlePsbtRequest(
@@ -846,7 +901,7 @@ async function handlePsbtRequest(
       "A base64 PSBT is required.",
     );
   }
-  const network = activeNetwork();
+  const network = await activeNetwork();
   const client = new ElectrsClient(network);
   let state;
   try {
@@ -885,11 +940,17 @@ async function handlePsbtRequest(
       `The PSBT's implied fee rate of ${summary.feeRate} nusan/vbyte exceeds the maximum of ${MAX_FEE_RATE}.`,
     );
   }
-  return openApprovalWindow(origin, broadcast ? "sendPsbt" : "signPsbt", tabId, {
-    psbtBase64,
-    psbtSummary: summary,
-    psbtOwnership: owned,
-  });
+  return openApprovalWindow(
+    origin,
+    broadcast ? "sendPsbt" : "signPsbt",
+    tabId,
+    network,
+    {
+      psbtBase64,
+      psbtSummary: summary,
+      psbtOwnership: owned,
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -909,7 +970,7 @@ async function handleProviderRequest(
 
   switch (request.method) {
     case "nux_getNetwork":
-      return activeNetwork().id;
+      return (await activeNetwork()).id;
 
     case "nux_requestAccounts":
       return handleRequestAccounts(origin, tabId);
@@ -939,7 +1000,7 @@ async function handleProviderRequest(
       if (!address) {
         throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
       }
-      const client = new ElectrsClient(activeNetwork());
+      const client = new ElectrsClient(await activeNetwork());
       const { confirmed, unconfirmed } = await getCachedBalances(client);
       await touchSession();
       // Integer nusan, per the specification.
@@ -977,10 +1038,13 @@ async function handleProviderRequest(
 // exact payload the user was shown.
 
 async function executeApproval(pending: PendingRequest): Promise<unknown> {
-  const network = activeNetwork();
+  // The pending's own network, never the active one: the user may
+  // have switched networks while the approval was pending, and what
+  // was shown is what executes.
+  const network = pending.network;
   switch (pending.kind) {
     case "connect": {
-      const address = await walletPrimaryAddress();
+      const address = await walletPrimaryAddressOn(network);
       if (!address) throw new Error("No wallet exists yet.");
       await connectOrigin(pending.origin, [address]);
       await touchSession();
@@ -995,7 +1059,7 @@ async function executeApproval(pending: PendingRequest): Promise<unknown> {
       signWalletPsbt(psbt, mnemonic, network, pending.sendOwnership);
       const hex = finalizeToHex(psbt);
       const txid = await new ElectrsClient(network).broadcastTx(hex);
-      await applyBroadcastToCache(pending.sendDraft.summary);
+      await applyBroadcastToCache(pending.sendDraft.summary, network);
       void refreshWalletCacheInBackground();
       return txid;
     }
@@ -1036,7 +1100,6 @@ async function executeApproval(pending: PendingRequest): Promise<unknown> {
 interface InternalStatus {
   network: NuxNetwork["id"];
   networkLabel: string;
-  locked: boolean;
   electrsBaseUrl: string;
   tipHeight: number | null;
   feeRate: number | null;
@@ -1049,12 +1112,11 @@ interface InternalStatus {
 }
 
 async function handleGetStatus(): Promise<InternalStatus> {
-  const network = activeNetwork();
+  const network = await activeNetwork();
   const client = new ElectrsClient(network);
   const status: InternalStatus = {
     network: network.id,
     networkLabel: network.label,
-    locked: network.locked,
     electrsBaseUrl: network.electrsBaseUrl,
     tipHeight: null,
     feeRate: null,
@@ -1111,12 +1173,14 @@ async function handleGetApprovalRequest(id: string): Promise<ApprovalRequestView
     id: pending.id,
     origin: pending.origin,
     kind: pending.kind,
-    network: activeNetwork().id,
-    networkLabel: activeNetwork().label,
+    // The pending's own network, not the active one: the approval
+    // window shows what was asked, even if the user switched since.
+    network: pending.network.id,
+    networkLabel: pending.network.label,
     hasVault: await hasVault(),
     unlocked,
     alreadyConnected: await isOriginConnected(pending.origin),
-    address: unlocked ? await walletPrimaryAddress() : null,
+    address: unlocked ? await walletPrimaryAddressOn(pending.network) : null,
     sendSummary: unlocked ? pending.sendDraft?.summary : undefined,
     message: unlocked ? pending.message : undefined,
     psbtSummary: unlocked ? pending.psbtSummary : undefined,
@@ -1186,6 +1250,8 @@ interface InternalMessage {
   label?: string;
   address?: string;
   unit?: string;
+  network?: string;
+  acknowledge?: boolean;
 }
 
 type InternalHandler = (message: InternalMessage) => Promise<unknown>;
@@ -1213,6 +1279,9 @@ interface LastPopupSend {
   txid: string | null;
   error: string | null;
   at: number;
+  /** The network the send executed on. Records written before this
+   * field existed read as testnet. */
+  network?: NuxNetwork["id"];
 }
 
 async function recordLastPopupSend(result: LastPopupSend): Promise<void> {
@@ -1257,7 +1326,7 @@ async function handlePopupSendDraft(
       "Another send from this wallet is awaiting approval.",
     );
   }
-  const network = activeNetwork();
+  const network = await activeNetwork();
   if (amount < network.dustLimit) {
     throw new ProviderRpcError(
       ERROR_INVALID_PARAMS,
@@ -1299,10 +1368,15 @@ async function handlePopupSendDraft(
   // popupSendConfirm / popupSendCancel. The settlement is still
   // recorded for the last-send line — except a user rejection, which
   // is a deliberate "no", not a failed send.
-  const { pending, promise: settled } = createPending(WALLET_ORIGIN, "send", {
-    sendDraft: draft,
-    sendOwnership: ownershipMap(state),
-  });
+  const { pending, promise: settled } = createPending(
+    WALLET_ORIGIN,
+    "send",
+    network,
+    {
+      sendDraft: draft,
+      sendOwnership: ownershipMap(state),
+    },
+  );
   void settled.then(
     (txid) =>
       recordLastPopupSend({
@@ -1314,6 +1388,7 @@ async function handlePopupSendDraft(
         txid: typeof txid === "string" ? txid : null,
         error: null,
         at: Date.now(),
+        network: network.id,
       }),
     (error) => {
       if (
@@ -1331,6 +1406,7 @@ async function handlePopupSendDraft(
         txid: null,
         error: error instanceof Error ? error.message : "Send failed.",
         at: Date.now(),
+        network: network.id,
       });
     },
   );
@@ -1409,7 +1485,7 @@ async function handleGetMaxSendable(): Promise<{
   if (!(await isUnlocked())) {
     throw new ProviderRpcError(ERROR_UNAUTHORIZED, "The wallet is locked.");
   }
-  const network = activeNetwork();
+  const network = await activeNetwork();
   const client = new ElectrsClient(network);
   const networkRate = await client.getFeeRate();
   const feeRate = Math.min(MAX_FEE_RATE, Math.max(1, Math.round(networkRate)));
@@ -1427,6 +1503,62 @@ async function handleGetMaxSendable(): Promise<{
     }
     throw error;
   }
+}
+
+/**
+ * Switch the active network (Milestone 12). The setting persists in
+ * chrome.storage.local, so it survives browser restarts; testnet
+ * stays the default for a fresh install. Switching is a public
+ * setting — it needs no vault and no unlock — but the first switch
+ * to mainnet needs a one-time acknowledgment that mainnet moves
+ * real funds; the popup shows the confirmation card and passes
+ * acknowledge: true. A wallet send under inline review belongs to
+ * the old network and does not survive the switch; dApp pendings
+ * keep their own network and execute on it. Connected tabs learn
+ * about the switch through networkChanged + accountsChanged.
+ */
+const MAINNET_ACK_KEY = "mainnetAcknowledged";
+
+async function readMainnetAcknowledged(): Promise<boolean> {
+  const stored = await chrome.storage.local.get([MAINNET_ACK_KEY]);
+  return stored[MAINNET_ACK_KEY] === true;
+}
+
+async function handleSetNetwork(
+  message: InternalMessage,
+): Promise<{ network: NuxNetwork["id"] }> {
+  const id = message.network;
+  if (id !== "mainnet" && id !== "testnet") {
+    throw new ProviderRpcError(
+      ERROR_INVALID_PARAMS,
+      "Unknown network. Expected \"mainnet\" or \"testnet\".",
+    );
+  }
+  const current = await readActiveNetworkId();
+  if (id === current) return { network: current };
+  if (id === "mainnet") {
+    if (
+      !(await readMainnetAcknowledged()) &&
+      message.acknowledge !== true
+    ) {
+      throw new ProviderRpcError(
+        ERROR_INVALID_PARAMS,
+        "Switching to mainnet needs a one-time acknowledgment.",
+      );
+    }
+    if (message.acknowledge === true) {
+      await chrome.storage.local.set({ [MAINNET_ACK_KEY]: true });
+    }
+  }
+  await writeActiveNetworkId(id);
+  const walletPending = pendingByOrigin.get(WALLET_ORIGIN);
+  if (walletPending) rejectRequest(walletPending, false);
+  // Fresh state for the new network; the sync also re-targets the
+  // incoming-coin watcher at the new network's addresses.
+  void refreshWalletCacheInBackground();
+  await emitNetworkChangedEverywhere();
+  await emitAccountsChangedEverywhere();
+  return { network: id };
 }
 
 const internalHandlers: Record<string, InternalHandler> = {
@@ -1455,7 +1587,7 @@ const internalHandlers: Record<string, InternalHandler> = {
     handleResolveApproval(message.id ?? "", message.approved === true),
   getConnections: async () => ({ connections: await listConnections() }),
   getActivity: async () => ({
-    entries: await getActivityEntries(),
+    entries: await getActivityEntries((await activeNetwork()).id),
     enabled: await isNotificationsEnabled(),
   }),
   setNotificationsEnabled: async (message) => {
@@ -1485,14 +1617,28 @@ const internalHandlers: Record<string, InternalHandler> = {
   popupSendCancel: async (message) => handlePopupSendCancel(message),
   getPendingWalletSend: async () => handleGetPendingWalletSend(),
   getMaxSendable: async () => handleGetMaxSendable(),
+  getNetwork: async () => ({
+    network: await readActiveNetworkId(),
+    mainnetAcknowledged: await readMainnetAcknowledged(),
+  }),
+  setNetwork: async (message) => handleSetNetwork(message),
   getLastSend: async () => {
     const stored = await chrome.storage.local.get(LAST_SEND_KEY);
     const lastSend = stored[LAST_SEND_KEY] as LastPopupSend | undefined;
-    return { lastSend: lastSend ?? null };
+    if (!lastSend) return { lastSend: null };
+    // The last-send line belongs to its network; a testnet send
+    // must not show while the wallet is on mainnet (and back).
+    // Records written before the network field existed read as
+    // testnet.
+    const network = await activeNetwork();
+    if ((lastSend.network ?? "testnet") !== network.id) {
+      return { lastSend: null };
+    }
+    return { lastSend };
   },
   addressBookList: async () => {
     const entries = await listAddressBookEntries();
-    const network = activeNetwork();
+    const network = await activeNetwork();
     return { entries: entries.filter((entry) => entry.network === network.id) };
   },
   addressBookAdd: async (message) => {
@@ -1500,7 +1646,7 @@ const internalHandlers: Record<string, InternalHandler> = {
       const entry = await addAddressBookEntry(
         message.label ?? "",
         message.address ?? "",
-        activeNetwork(),
+        await activeNetwork(),
       );
       return { entry };
     } catch (error) {
@@ -1518,8 +1664,8 @@ const internalHandlers: Record<string, InternalHandler> = {
   },
   getMarketInfo: async () => ({ market: await getMarketInfoCached() }),
   getReceiveAddress: async () => {
-    const network = activeNetwork();
-    const { address } = await requireWalletPublics();
+    const network = await activeNetwork();
+    const { address } = await requireWalletPublics(network);
     const state = await getWalletState(new ElectrsClient(network));
     const index = await readReceiveAddressIndex(network.id, address);
     const current = currentReceiveAddress(state, index);
@@ -1530,8 +1676,8 @@ const internalHandlers: Record<string, InternalHandler> = {
     };
   },
   refreshReceiveAddress: async () => {
-    const network = activeNetwork();
-    const { address } = await requireWalletPublics();
+    const network = await activeNetwork();
+    const { address } = await requireWalletPublics(network);
     const state = await getWalletState(new ElectrsClient(network));
     const index = await readReceiveAddressIndex(network.id, address);
     const current = currentReceiveAddress(state, index);
@@ -1580,10 +1726,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     // break the alarm or the auto-lock above; and the check needs no
     // unlocked vault — it only reads public addresses.
     try {
-      const client = new ElectrsClient(activeNetwork());
+      const network = await activeNetwork();
+      const client = new ElectrsClient(network);
       await runNotificationCheck({
         client,
-        network: activeNetwork(),
+        network,
         primaryAddress: await walletPrimaryAddress(),
         getWalletState: () => getWalletState(client),
       });
