@@ -136,18 +136,26 @@ function renderWallet(status: StatusResult): void {
   );
   setText("networkName", `${status.networkLabel} (${status.network})`);
   setText("walletAddress", status.address ?? "—");
-  setText(
-    "confirmedBalance",
-    status.confirmedBalance !== null ? String(status.confirmedBalance) : "—",
-  );
-  setText(
-    "unconfirmedBalance",
-    status.unconfirmedBalance !== null ? String(status.unconfirmedBalance) : "—",
-  );
-  setText("tipHeight", status.tipHeight !== null ? String(status.tipHeight) : "—");
-  setText("feeRate", status.feeRate !== null ? String(status.feeRate) : "—");
+  // A failed refresh returns null figures: keep the last-known values
+  // instead of blanking them to dashes. The initial "—" in the markup
+  // survives untouched until the first successful read, and the note
+  // below still says the backend failed.
+  if (status.confirmedBalance !== null) {
+    setText("confirmedBalance", formatNusan(status.confirmedBalance));
+  }
+  if (status.unconfirmedBalance !== null) {
+    setText("unconfirmedBalance", formatNusan(status.unconfirmedBalance));
+  }
+  if (status.tipHeight !== null) {
+    setText("tipHeight", String(status.tipHeight));
+  }
+  if (status.feeRate !== null) {
+    setText("feeRate", String(status.feeRate));
+  }
   if (status.statusError) {
     setText("walletNote", `Backend status: ${status.statusError}`);
+  } else {
+    setText("walletNote", walletNoteDefault);
   }
   show("viewWallet");
   void renderConnections();
@@ -309,6 +317,43 @@ function formatIdr(value: number): string {
   });
 }
 
+/** Whole-nusan amounts with thousands separators ("318210" -> "318,210"). */
+function formatNusan(value: number): string {
+  return value.toLocaleString("en-US");
+}
+
+/** Group a digit string with thousands separators ("8000" -> "8,000").
+ * Pure string work, so no precision is lost on long inputs. */
+function groupThousands(digits: string): string {
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/** Reformat the amount field as the user types, keeping the caret
+ * after the same digit. Non-digits are dropped. */
+function formatAmountInput(input: HTMLInputElement): void {
+  const caret = input.selectionStart ?? input.value.length;
+  const digitsBeforeCaret = input.value
+    .slice(0, caret)
+    .replace(/\D/g, "").length;
+  const digits = input.value.replace(/\D/g, "");
+  input.value = digits === "" ? "" : groupThousands(digits);
+  let position = 0;
+  if (digitsBeforeCaret > 0) {
+    let seen = 0;
+    position = input.value.length;
+    for (let i = 0; i < input.value.length; i++) {
+      if (/\d/.test(input.value.charAt(i))) {
+        seen += 1;
+        if (seen === digitsBeforeCaret) {
+          position = i + 1;
+          break;
+        }
+      }
+    }
+  }
+  input.setSelectionRange(position, position);
+}
+
 function formatNuxPriceIdr(value: number): string {
   // Below Rp1 the 2-decimal display loses the price; keep 4.
   const digits = value >= 1 ? 2 : 4;
@@ -360,6 +405,12 @@ async function renderMarket(status: StatusResult): Promise<void> {
       const idr = (total / 100_000_000) * market.priceIdr;
       equivalent.textContent = `Balance ≈ Rp${formatIdr(idr)}`;
       equivalent.hidden = false;
+    } else if (
+      status.confirmedBalance === null &&
+      status.unconfirmedBalance === null
+    ) {
+      // A failed refresh: keep the previous equivalent, same rule as
+      // the balances in renderWallet.
     } else {
       equivalent.hidden = true;
     }
@@ -405,7 +456,11 @@ async function handleAddressBookRemove(id: string): Promise<void> {
 
 async function handleSend(): Promise<void> {
   const to = el<HTMLInputElement>("sendTo").value.trim();
-  const amountText = el<HTMLInputElement>("sendAmount").value.trim();
+  // The amount field shows thousands separators while typing; strip
+  // them before the whole-number validation.
+  const amountText = el<HTMLInputElement>("sendAmount").value
+    .trim()
+    .replace(/,/g, "");
   const rbf = el<HTMLInputElement>("sendRbf").checked;
   const button = el<HTMLButtonElement>("sendSubmit");
   setText("sendError", "");
@@ -544,7 +599,16 @@ async function handleUnlock(): Promise<void> {
   }
 }
 
+// The wallet note's default text (the testnet explainer in the
+// markup), captured before the first refresh so a backend-error note
+// can be replaced by it again once the backend recovers.
+let walletNoteDefault = "";
+
 document.addEventListener("DOMContentLoaded", () => {
+  walletNoteDefault = el("walletNote").textContent;
+  el("sendAmount").addEventListener("input", () => {
+    formatAmountInput(el<HTMLInputElement>("sendAmount"));
+  });
   // Show the running version in the footer, so a field test can
   // confirm at a glance which build is loaded.
   setText("versionText", `NUX Connect v${chrome.runtime.getManifest().version}`);
