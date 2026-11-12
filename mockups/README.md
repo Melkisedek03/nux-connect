@@ -10,13 +10,20 @@ for the team to implement from, not working extension code.
   (confirmed vs unconfirmed), bech32 `tn1...` address with copy button,
   Kirim/Terima buttons, connected site, recent activity. Bold electric-green
   cartoon style.
+- `vault.html` — locked vault screen: password field, unlock button,
+  recovery link, 15-minute auto-lock note.
+- `persetujuan.html` — transaction approval window: requesting origin on
+  top, TESTNET banner, decoded transaction (destination, amount, fee,
+  total out), warning, Tolak / Setujui buttons (Setujui briefly inactive,
+  per spec).
 
 ## Preview
 
-Open the file directly in any browser; no build step, no server needed.
+Open any file directly in a browser; no build step, no server needed.
 
 ## Notes
 
 - UI text is in Bahasa Indonesia (target users), matching the project brief.
 - Follows the locked spec: testnet-first, confirmed balance means
-  >= 1 confirmation, amounts in nusan integers.
+  >= 1 confirmation, amounts in nusan integers, fee from the active
+  network endpoint (flat 1.0 nusan/vbyte).
