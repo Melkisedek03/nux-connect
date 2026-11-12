@@ -127,6 +127,7 @@
         margin: 2px 4px 2px 0;
         padding: 4px 10px;
       }
+      #marketInfo p { margin: 4px 0; }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -215,6 +216,11 @@
         <dt>Fee rate (nusan/vbyte)</dt>
         <dd id="feeRate">—</dd>
       </dl>
+      <div id="marketInfo" hidden>
+        <p id="marketPrice">—</p>
+        <p id="marketEquivalent" hidden>—</p>
+        <p class="note" id="marketSource">—</p>
+      </div>
       <button id="lockSubmit" type="button" class="secondary">Lock wallet</button>
       <h2>Send</h2>
       <label>

@@ -39,6 +39,7 @@ import {
 } from "../lib/connections";
 import { ElectrsClient } from "../lib/electrs";
 import { derivePrivateKey, primaryAddress } from "../lib/keys";
+import { fetchMarketInfo, type MarketInfo } from "../lib/market";
 import { DEFAULT_NETWORK_ID, getNetwork, type NuxNetwork } from "../lib/networks";
 import {
   ERROR_INVALID_PARAMS,
@@ -222,6 +223,35 @@ async function getAggregatedBalances(
 
 async function invalidateBalanceCache(): Promise<void> {
   await chrome.storage.session.remove(BALANCE_CACHE_KEY);
+}
+
+// Market price cache (Milestone 8): the price is global, not
+// per-wallet, so the record carries no network or address key. Five
+// minutes, matching the ELNUX market cache: opening the popup
+// repeatedly must not hammer the public sources. On a fetch failure
+// the stale cache is served rather than nothing.
+
+const MARKET_CACHE_KEY = "marketInfoCache";
+const MARKET_CACHE_TTL_MS = 5 * 60_000;
+
+interface MarketCacheRecord {
+  at: number;
+  info: MarketInfo;
+}
+
+async function getMarketInfoCached(): Promise<MarketInfo | null> {
+  const stored = await chrome.storage.session.get(MARKET_CACHE_KEY);
+  const cached = stored[MARKET_CACHE_KEY] as MarketCacheRecord | undefined;
+  if (cached && Date.now() - cached.at < MARKET_CACHE_TTL_MS) {
+    return cached.info;
+  }
+  const fresh = await fetchMarketInfo();
+  if (fresh) {
+    const record: MarketCacheRecord = { at: Date.now(), info: fresh };
+    await chrome.storage.session.set({ [MARKET_CACHE_KEY]: record });
+    return fresh;
+  }
+  return cached?.info ?? null;
 }
 
 /** The accounts a page at this origin may currently see. */
@@ -1268,6 +1298,7 @@ const internalHandlers: Record<string, InternalHandler> = {
     const removed = await removeAddressBookEntry(message.id ?? "");
     return { removed };
   },
+  getMarketInfo: async () => ({ market: await getMarketInfoCached() }),
 };
 
 chrome.runtime.onInstalled.addListener(() => {
