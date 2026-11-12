@@ -156,6 +156,11 @@
       .kartu-saldo .angka span { font-size: 16px; }
       .kartu-saldo .rincian { font-size: 12px; font-weight: 700; margin-top: 4px; }
       .kartu-saldo .rincian b { color: #00913a; }
+      .kartu-saldo .satuan {
+        margin-top: 8px;
+        font-size: 12px;
+        padding: 4px 12px;
+      }
       .alamat {
         display: flex;
         align-items: center;
@@ -347,8 +352,9 @@
     <section id="viewWallet" hidden>
       <section class="kartu-saldo">
         <div class="label">SALDO KAMU</div>
-        <div class="angka"><span id="totalBalance">—</span> <span>nusan</span></div>
+        <div class="angka"><span id="totalBalance">—</span> <span id="totalUnit">nusan</span></div>
         <div class="rincian">Terkonfirmasi <b id="confirmedBalance">—</b> • Belum terkonfirmasi <span id="unconfirmedBalance">—</span></div>
+        <button id="unitToggle" type="button" class="satuan">Satuan: nusan</button>
       </section>
       <div class="alamat">
         <code id="walletAddress">—</code>
@@ -414,7 +420,7 @@
         <input id="sendTo" type="text" autocomplete="off" spellcheck="false" />
       </label>
       <label>
-        Jumlah (nusan)
+        <span id="sendAmountLabel">Jumlah (nusan)</span>
         <input id="sendAmount" type="text" inputmode="numeric" autocomplete="off" />
       </label>
       <label>

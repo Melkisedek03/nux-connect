@@ -28,6 +28,7 @@ import {
   currentReceiveAddress,
   readReceiveAddressIndex,
 } from "./receiveaddress";
+import { formatAmount, readDisplayUnit } from "./units";
 import type { WalletState } from "./wallet";
 
 const WATCHED_ADDRESSES_KEY = "notificationWatchAddresses";
@@ -142,10 +143,13 @@ async function notifyIncoming(
   // replacing the mempool one.
   const id =
     stage === "confirmed" ? `confirmed:${entry.key}` : `incoming:${entry.key}`;
+  // The amount follows the user's display unit, like every other
+  // amount the extension shows.
+  const unit = await readDisplayUnit();
   const message =
     stage === "confirmed"
-      ? `+${entry.amount} nusan — terkonfirmasi`
-      : `+${entry.amount} nusan — menunggu konfirmasi`;
+      ? `+${formatAmount(entry.amount, unit)} — terkonfirmasi`
+      : `+${formatAmount(entry.amount, unit)} — menunggu konfirmasi`;
   await chrome.notifications.create(id, {
     type: "basic",
     iconUrl: chrome.runtime.getURL("icons/icon-128.png"),

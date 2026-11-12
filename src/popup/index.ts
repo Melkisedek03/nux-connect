@@ -8,6 +8,13 @@
 
 import "../lib/globals";
 import { encodeQrMatrix } from "../lib/qrcode";
+import {
+  formatAmount,
+  formatAmountValue,
+  nuxStringToNusan,
+  parseDisplayUnit,
+  type DisplayUnit,
+} from "../lib/units";
 
 interface StatusResult {
   network: string;
@@ -56,6 +63,8 @@ type InternalRequest =
   | "getMarketInfo"
   | "getReceiveAddress"
   | "refreshReceiveAddress"
+  | "getDisplayUnit"
+  | "setDisplayUnit"
   | "disconnectOrigin";
 
 interface MarketInfo {
@@ -141,6 +150,45 @@ function setText(id: string, text: string): void {
 
 let setupMode: "create" | "import" = "create";
 
+/** The user's display unit for amounts, loaded from the background
+ * before the first render (default nusan). Every amount this popup
+ * shows — balances, activity, last send — formats through it. */
+let displayUnit: DisplayUnit = "nusan";
+
+/** Apply the current unit to the static labels: the toggle button,
+ * the hero unit, the send form's label, and the send field's
+ * keyboard. The send amount itself is cleared — a value typed under
+ * the other unit would parse as a wildly different amount. */
+function applyDisplayUnit(): void {
+  setText("unitToggle", `Satuan: ${displayUnit === "nusan" ? "nusan" : "NUX"}`);
+  setText("totalUnit", displayUnit === "nusan" ? "nusan" : "NUX");
+  setText(
+    "sendAmountLabel",
+    displayUnit === "nusan" ? "Jumlah (nusan)" : "Jumlah (NUX)",
+  );
+  el<HTMLInputElement>("sendAmount").inputMode =
+    displayUnit === "nusan" ? "numeric" : "decimal";
+  el<HTMLInputElement>("sendAmount").value = "";
+  setText("sendError", "");
+}
+
+async function handleUnitToggle(): Promise<void> {
+  const next: DisplayUnit = displayUnit === "nusan" ? "nux" : "nusan";
+  try {
+    const result = await call<{ unit: DisplayUnit }>("setDisplayUnit", {
+      unit: next,
+    });
+    // Never trust the echoed value blindly: a missing or corrupted
+    // unit reads as the nusan default.
+    displayUnit = parseDisplayUnit(result.unit);
+    applyDisplayUnit();
+    // Re-render every amount from the fresh status.
+    await refresh();
+  } catch {
+    // The preference did not save; the display keeps the old unit.
+  }
+}
+
 function setSetupMode(mode: "create" | "import"): void {
   setupMode = mode;
   el("paneCreate").hidden = mode !== "create";
@@ -162,15 +210,24 @@ function renderWallet(status: StatusResult): void {
   // below still says the backend failed. The hero total only moves
   // when both halves are known — a half-known total would be wrong.
   if (status.confirmedBalance !== null) {
-    setText("confirmedBalance", formatNusan(status.confirmedBalance));
+    setText(
+      "confirmedBalance",
+      formatAmountValue(status.confirmedBalance, displayUnit),
+    );
   }
   if (status.unconfirmedBalance !== null) {
-    setText("unconfirmedBalance", formatNusan(status.unconfirmedBalance));
+    setText(
+      "unconfirmedBalance",
+      formatAmountValue(status.unconfirmedBalance, displayUnit),
+    );
   }
   if (status.confirmedBalance !== null && status.unconfirmedBalance !== null) {
     setText(
       "totalBalance",
-      formatNusan(status.confirmedBalance + status.unconfirmedBalance),
+      formatAmountValue(
+        status.confirmedBalance + status.unconfirmedBalance,
+        displayUnit,
+      ),
     );
   }
   if (status.tipHeight !== null) {
@@ -353,7 +410,7 @@ function renderActivityList(entries: ActivityEntry[]): void {
     const row = document.createElement("p");
     const when = new Date(entry.firstSeenAt).toLocaleString();
     row.textContent =
-      `+${entry.amount} nusan — ${statusLabel(entry)} — ${when}`;
+      `+${formatAmount(entry.amount, displayUnit)} — ${statusLabel(entry)} — ${when}`;
     list.appendChild(row);
   }
 }
@@ -382,7 +439,7 @@ async function renderLastSend(): Promise<void> {
     line.hidden = false;
     if (last.ok) {
       line.textContent =
-        `Kirim terakhir: ${last.amount} nusan ke ${last.to} — txid ${last.txid ?? "—"}` +
+        `Kirim terakhir: ${formatAmount(last.amount, displayUnit)} ke ${last.to} — txid ${last.txid ?? "—"}` +
         (last.rbf ? " (bisa diganti)" : "");
     } else {
       line.textContent = `Kirim terakhir gagal: ${last.error ?? "kesalahan tidak diketahui"}`;
@@ -442,40 +499,64 @@ function formatIdr(value: number): string {
   });
 }
 
-/** Whole-nusan amounts with thousands separators ("318210" -> "318,210"). */
-function formatNusan(value: number): string {
-  return value.toLocaleString("en-US");
-}
-
 /** Group a digit string with thousands separators ("8000" -> "8,000").
  * Pure string work, so no precision is lost on long inputs. */
 function groupThousands(digits: string): string {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-/** Reformat the amount field as the user types, keeping the caret
- * after the same digit. Non-digits are dropped. */
-function formatAmountInput(input: HTMLInputElement): void {
-  const caret = input.selectionStart ?? input.value.length;
-  const digitsBeforeCaret = input.value
-    .slice(0, caret)
-    .replace(/\D/g, "").length;
-  const digits = input.value.replace(/\D/g, "");
-  input.value = digits === "" ? "" : groupThousands(digits);
-  let position = 0;
-  if (digitsBeforeCaret > 0) {
-    let seen = 0;
-    position = input.value.length;
-    for (let i = 0; i < input.value.length; i++) {
-      if (/\d/.test(input.value.charAt(i))) {
-        seen += 1;
-        if (seen === digitsBeforeCaret) {
-          position = i + 1;
-          break;
-        }
-      }
+/** The caret position after `count` digits in `value`: walk the
+ * digits, skipping the grouping separators. */
+function positionAfterDigits(value: string, count: number): number {
+  if (count <= 0) return 0;
+  let seen = 0;
+  for (let i = 0; i < value.length; i++) {
+    if (/\d/.test(value.charAt(i))) {
+      seen += 1;
+      if (seen === count) return i + 1;
     }
   }
+  return value.length;
+}
+
+/** Reformat the amount field as the user types, keeping the caret
+ * after the same digit. In nusan mode non-digits are dropped; in
+ * NUX mode one decimal point is kept and the fraction is capped at
+ * 8 digits (a fraction below 1 nusan does not exist). */
+function formatAmountInput(input: HTMLInputElement): void {
+  const raw = input.value;
+  const caret = input.selectionStart ?? raw.length;
+  if (displayUnit === "nux") {
+    const dotIndex = raw.indexOf(".");
+    const wholeRaw = dotIndex === -1 ? raw : raw.slice(0, dotIndex);
+    const fracRaw = dotIndex === -1 ? "" : raw.slice(dotIndex + 1);
+    const wholeDigits = wholeRaw.replace(/\D/g, "");
+    const fracDigits = fracRaw.replace(/\D/g, "").slice(0, 8);
+    const hasDot = dotIndex !== -1;
+    const grouped = wholeDigits === "" ? "" : groupThousands(wholeDigits);
+    // A leading dot becomes "0." so the value always parses.
+    const wholeText = grouped === "" && hasDot ? "0" : grouped;
+    input.value = hasDot ? `${wholeText}.${fracDigits}` : wholeText;
+    let position: number;
+    if (!hasDot || caret <= dotIndex) {
+      const digitsBeforeCaret = raw
+        .slice(0, caret)
+        .replace(/\D/g, "").length;
+      position = positionAfterDigits(input.value, digitsBeforeCaret);
+    } else {
+      const fracBeforeCaret = raw
+        .slice(dotIndex + 1, caret)
+        .replace(/\D/g, "").length;
+      position =
+        input.value.indexOf(".") + 1 + Math.min(fracBeforeCaret, fracDigits.length);
+    }
+    input.setSelectionRange(position, position);
+    return;
+  }
+  const digitsBeforeCaret = raw.slice(0, caret).replace(/\D/g, "").length;
+  const digits = raw.replace(/\D/g, "");
+  input.value = digits === "" ? "" : groupThousands(digits);
+  const position = positionAfterDigits(input.value, digitsBeforeCaret);
   input.setSelectionRange(position, position);
 }
 
@@ -582,7 +663,7 @@ async function handleAddressBookRemove(id: string): Promise<void> {
 async function handleSend(): Promise<void> {
   const to = el<HTMLInputElement>("sendTo").value.trim();
   // The amount field shows thousands separators while typing; strip
-  // them before the whole-number validation.
+  // them before validation.
   const amountText = el<HTMLInputElement>("sendAmount").value
     .trim()
     .replace(/,/g, "");
@@ -593,13 +674,33 @@ async function handleSend(): Promise<void> {
     setText("sendError", "Masukkan alamat penerima.");
     return;
   }
-  if (!/^\d+$/.test(amountText)) {
-    setText("sendError", "Jumlah harus bilangan bulat nusan.");
-    return;
+  // In NUX mode the user types a decimal; it converts to whole
+  // nusan here, so everything downstream still works in integers.
+  let amount: number;
+  if (displayUnit === "nux") {
+    const parsed = nuxStringToNusan(amountText);
+    if (parsed === null) {
+      setText(
+        "sendError",
+        "Jumlah harus bilangan desimal NUX (maks 8 angka di belakang koma).",
+      );
+      return;
+    }
+    amount = parsed;
+  } else {
+    if (!/^\d+$/.test(amountText)) {
+      setText("sendError", "Jumlah harus bilangan bulat nusan.");
+      return;
+    }
+    amount = Number(amountText);
   }
-  const amount = Number(amountText);
   if (!Number.isSafeInteger(amount) || amount <= 0) {
-    setText("sendError", "Jumlah harus bilangan bulat positif nusan.");
+    setText(
+      "sendError",
+      displayUnit === "nux"
+        ? "Jumlah harus lebih dari 0 NUX."
+        : "Jumlah harus bilangan bulat positif nusan.",
+    );
     return;
   }
   button.disabled = true;
@@ -761,6 +862,7 @@ document.addEventListener("DOMContentLoaded", () => {
   el("lockSubmit").addEventListener("click", () => {
     void call("vaultLock").then(() => refresh());
   });
+  el("unitToggle").addEventListener("click", () => void handleUnitToggle());
   el("navSend").addEventListener("click", () => show("viewSend"));
   el("navReceive").addEventListener("click", () => show("viewReceive"));
   el("sendBack").addEventListener("click", () => show("viewWallet"));
@@ -790,13 +892,26 @@ document.addEventListener("DOMContentLoaded", () => {
         el<HTMLInputElement>("notificationsToggle").checked = !enabled;
       });
   });
-  void refresh().catch((error: unknown) => {
-    setText(
-      "viewLoading",
-      `Tidak bisa menghubungi background worker: ${
-        error instanceof Error ? error.message : "kesalahan tidak diketahui"
-      }`,
-    );
-    show("viewLoading");
-  });
+  // Load the display unit before the first render, so the first
+  // paint already shows the user's unit instead of flashing nusan.
+  void (async () => {
+    try {
+      const result = await call<{ unit: DisplayUnit }>("getDisplayUnit");
+      displayUnit = parseDisplayUnit(result.unit);
+    } catch {
+      displayUnit = "nusan";
+    }
+    applyDisplayUnit();
+    try {
+      await refresh();
+    } catch (error: unknown) {
+      setText(
+        "viewLoading",
+        `Tidak bisa menghubungi background worker: ${
+          error instanceof Error ? error.message : "kesalahan tidak diketahui"
+        }`,
+      );
+      show("viewLoading");
+    }
+  })();
 });

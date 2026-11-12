@@ -102,6 +102,11 @@ import {
   ownershipMap,
   type WalletState,
 } from "../lib/wallet";
+import {
+  parseDisplayUnit,
+  readDisplayUnit,
+  writeDisplayUnit,
+} from "../lib/units";
 
 const POLL_ALARM = "nux-connect-poll";
 const ERROR_SERVER = -32000;
@@ -1164,6 +1169,7 @@ interface InternalMessage {
   rbf?: boolean;
   label?: string;
   address?: string;
+  unit?: string;
 }
 
 type InternalHandler = (message: InternalMessage) => Promise<unknown>;
@@ -1367,6 +1373,12 @@ const internalHandlers: Record<string, InternalHandler> = {
     await setNotificationsEnabled(enabled);
     if (!enabled) await clearBadge();
     return { enabled };
+  },
+  getDisplayUnit: async () => ({ unit: await readDisplayUnit() }),
+  setDisplayUnit: async (message) => {
+    const unit = parseDisplayUnit(message.unit);
+    await writeDisplayUnit(unit);
+    return { unit };
   },
   notificationsOpened: async () => {
     await clearBadge();

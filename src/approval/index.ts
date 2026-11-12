@@ -18,6 +18,12 @@
 // call settles with that failure.
 
 import "../lib/globals";
+import {
+  formatAmount,
+  formatAmountValue,
+  parseDisplayUnit,
+  type DisplayUnit,
+} from "../lib/units";
 
 interface SendSummary {
   to: string;
@@ -54,7 +60,11 @@ interface ApprovalRequestView {
   psbtSummary?: PsbtSummary;
 }
 
-type InternalRequest = "getApprovalRequest" | "resolveApproval" | "vaultUnlock";
+type InternalRequest =
+  | "getApprovalRequest"
+  | "resolveApproval"
+  | "vaultUnlock"
+  | "getDisplayUnit";
 
 function call<T>(request: InternalRequest, payload: object = {}): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -134,6 +144,19 @@ async function load(): Promise<void> {
     );
     return;
   }
+  // Amounts follow the user's display unit (nusan by default). The
+  // unit is read after the request itself, so a failed read still
+  // leaves a usable approval window showing nusan.
+  let unit: DisplayUnit = "nusan";
+  try {
+    const result = await call<{ unit: DisplayUnit }>("getDisplayUnit");
+    unit = parseDisplayUnit(result.unit);
+  } catch {
+    // Keep the nusan default.
+  }
+  for (const suffix of document.querySelectorAll(".satuan")) {
+    suffix.textContent = unit === "nusan" ? "nusan" : "NUX";
+  }
 
   setText(
     "networkBadge",
@@ -179,13 +202,16 @@ async function load(): Promise<void> {
       }
       setText("sendOrigin", displayOrigin(view.origin));
       setText("sendTo", summary.to);
-      setText("sendAmount", String(summary.amount));
-      setText("sendFee", `${summary.fee} (dengan ${summary.feeRate} nusan/vbyte)`);
-      setText("sendTotal", String(summary.total));
+      setText("sendAmount", formatAmountValue(summary.amount, unit));
+      setText(
+        "sendFee",
+        `${formatAmount(summary.fee, unit)} (dengan ${summary.feeRate} nusan/vbyte)`,
+      );
+      setText("sendTotal", formatAmountValue(summary.total, unit));
       setText(
         "sendChange",
         summary.changeAddress
-          ? `${summary.changeValue} ke alamat kembalian dompet ini`
+          ? `${formatAmount(summary.changeValue, unit)} ke alamat kembalian dompet ini`
           : "0 (sisanya masuk ke fee)",
       );
       setText(
@@ -221,13 +247,19 @@ async function load(): Promise<void> {
       setText("psbtSubmit",
         view.kind === "signPsbt" ? "Tandatangani" : "Tandatangani dan kirim");
       setText("psbtOrigin", displayOrigin(view.origin));
-      setText("psbtTotalIn", String(summary.totalIn));
-      setText("psbtTotalOut", String(summary.totalOut));
-      setText("psbtFee", `${summary.fee} (tarif tersirat ${summary.feeRate} nusan/vbyte)`);
+      setText("psbtTotalIn", formatAmountValue(summary.totalIn, unit));
+      setText("psbtTotalOut", formatAmountValue(summary.totalOut, unit));
+      setText(
+        "psbtFee",
+        `${formatAmount(summary.fee, unit)} (tarif tersirat ${summary.feeRate} nusan/vbyte)`,
+      );
       setText(
         "psbtOutputs",
         summary.outputs
-          .map((output) => `${output.address ?? "(skrip tidak dikenal)"} — ${output.value}`)
+          .map(
+            (output) =>
+              `${output.address ?? "(skrip tidak dikenal)"} — ${formatAmount(output.value, unit)}`,
+          )
           .join("\n"),
       );
       setText("psbtNetworkNote", networkNote(view));
