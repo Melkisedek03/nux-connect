@@ -58,6 +58,19 @@
         flex-direction: column;
         gap: 14px;
       }
+      /* The wallet view's blocks (balance card, address bar, buttons,
+         section cards, details line, lock button) stack with no gap
+         of their own — the reset kills every default margin — so the
+         cards touched and the details line was squeezed between the
+         address book card and the lock button. The same 14px rhythm
+         as the outer container, with the note's own top margin
+         dropped here so it does not double up with the gap. */
+      #viewWallet {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      #viewWallet .note { margin-top: 0; }
       h2 { font-size: 16px; margin-bottom: 8px; }
       p, label { font-size: 13px; line-height: 1.45; font-weight: 700; }
       input, textarea {
