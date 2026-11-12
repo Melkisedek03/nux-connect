@@ -56,6 +56,7 @@ import {
   TxError,
   buildSendTransaction,
   finalizeToHex,
+  maxSendable,
   signMessageLegacy,
   signWalletPsbt,
   summarizePsbt,
@@ -1391,6 +1392,43 @@ async function handleGetPendingWalletSend(): Promise<{
   return { pending: { id: pending.id, summary: pending.sendDraft.summary } };
 }
 
+/**
+ * The MAX button's figure: the largest amount one transaction can
+ * send, from the cached UTXO set at the active network's own fee
+ * rate. Read-only (no draft is built), but the send form is an
+ * unlocked-only surface, so the lock rule matches the draft path.
+ */
+async function handleGetMaxSendable(): Promise<{
+  amount: number;
+  fee: number;
+  feeRate: number;
+}> {
+  if (!(await hasVault())) {
+    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
+  }
+  if (!(await isUnlocked())) {
+    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "The wallet is locked.");
+  }
+  const network = activeNetwork();
+  const client = new ElectrsClient(network);
+  const networkRate = await client.getFeeRate();
+  const feeRate = Math.min(MAX_FEE_RATE, Math.max(1, Math.round(networkRate)));
+  const state = await getWalletState(client);
+  try {
+    const { amount, fee } = maxSendable({
+      utxos: state.utxos,
+      feeRate,
+      dustLimit: network.dustLimit,
+    });
+    return { amount, fee, feeRate };
+  } catch (error) {
+    if (error instanceof TxError) {
+      throw new ProviderRpcError(ERROR_SERVER, error.message);
+    }
+    throw error;
+  }
+}
+
 const internalHandlers: Record<string, InternalHandler> = {
   getStatus: async () => handleGetStatus(),
   vaultCreate: async (message) => {
@@ -1446,6 +1484,7 @@ const internalHandlers: Record<string, InternalHandler> = {
   popupSendConfirm: async (message) => handlePopupSendConfirm(message),
   popupSendCancel: async (message) => handlePopupSendCancel(message),
   getPendingWalletSend: async () => handleGetPendingWalletSend(),
+  getMaxSendable: async () => handleGetMaxSendable(),
   getLastSend: async () => {
     const stored = await chrome.storage.local.get(LAST_SEND_KEY);
     const lastSend = stored[LAST_SEND_KEY] as LastPopupSend | undefined;

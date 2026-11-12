@@ -81,6 +81,32 @@
         gap: 14px;
       }
       #viewWallet .note { margin-top: 0; }
+      /* The receive and review views get the same treatment: the
+         reset kills every default margin, so the gap is the only
+         spacing — and the children's own margins are zeroed so they
+         do not double it. */
+      #viewReceive, #viewReview {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      #viewReceive h2, #viewReview h2 { margin-bottom: 0; }
+      #viewReceive .error, #viewReview .error { margin: 0; }
+      #viewReceive .note { margin-top: 0; }
+      .label-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 13px;
+        line-height: 1.45;
+        font-weight: 700;
+      }
+      button.max {
+        width: auto;
+        padding: 2px 10px;
+        font-size: 12px;
+        box-shadow: 2px 2px 0 #062b12;
+      }
       h2 { font-size: 16px; margin-bottom: 8px; }
       p, label { font-size: 13px; line-height: 1.45; font-weight: 700; }
       input, textarea {
@@ -421,17 +447,6 @@
         </div>
       </section>
       <section class="bagian">
-        <h2>AKTIVITAS</h2>
-        <label>
-          <input type="checkbox" id="notificationsToggle" />
-          Beri tahu aku tentang koin masuk
-        </label>
-        <div class="activity" id="activityList">
-          <p>Belum ada koin masuk.</p>
-        </div>
-        <p class="note" id="lastSend" hidden></p>
-      </section>
-      <section class="bagian">
         <h2>BUKU ALAMAT</h2>
         <div class="activity" id="addressBookList"></div>
         <label>
@@ -444,6 +459,17 @@
         </label>
         <p class="error" id="addressBookError"></p>
         <p><button id="addressBookAdd" type="button">Tambah ke buku alamat</button></p>
+      </section>
+      <section class="bagian">
+        <h2>AKTIVITAS</h2>
+        <label>
+          <input type="checkbox" id="notificationsToggle" />
+          Beri tahu aku tentang koin masuk
+        </label>
+        <div class="activity" id="activityList">
+          <p>Belum ada koin masuk.</p>
+        </div>
+        <p class="note" id="lastSend" hidden></p>
       </section>
       <p class="rincian-kecil">
         <span id="networkName">—</span> • Blok <span id="tipHeight">—</span> • Fee <span id="feeRate">—</span> nusan/vbyte
@@ -463,8 +489,11 @@
         Alamat tujuan
         <input id="sendTo" type="text" autocomplete="off" spellcheck="false" />
       </label>
-      <label>
+      <div class="label-row">
         <span id="sendAmountLabel">Jumlah (nusan)</span>
+        <button id="sendMax" type="button" class="max">MAX</button>
+      </div>
+      <label>
         <input id="sendAmount" type="text" inputmode="numeric" autocomplete="off" />
       </label>
       <label>
@@ -484,6 +513,7 @@
         <div class="baris total"><span>Total keluar</span><span class="nilai" id="reviewTotal">—</span></div>
         <div class="baris"><span>Kembalian ke dompet ini</span><span class="nilai" id="reviewChange">—</span></div>
         <div class="baris"><span>Bisa diganti (RBF)</span><span class="nilai" id="reviewRbf">—</span></div>
+        <div class="baris"><span>Saldo tersisa</span><span class="nilai" id="reviewRemaining">—</span></div>
       </div>
       <p class="error" id="reviewError"></p>
       <div class="tombol" id="reviewDecideRow">

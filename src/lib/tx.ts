@@ -67,6 +67,38 @@ function feeFor(rate: number, inputCount: number, outputCount: number): number {
   return Math.ceil(rate * estimateVsize(inputCount, outputCount));
 }
 
+/**
+ * The largest amount a single transaction can send with no change
+ * output: the best largest-first prefix of the UTXOs minus the fee of
+ * spending exactly that prefix. A later prefix only wins when its
+ * UTXO is worth more than the 68 vbytes it adds, so a dust-sized tail
+ * UTXO never drags the maximum down.
+ */
+export function maxSendable(args: {
+  utxos: WalletUtxo[];
+  feeRate: number;
+  dustLimit: number;
+}): { amount: number; fee: number } {
+  const sorted = [...args.utxos].sort((a, b) => b.value - a.value);
+  let sum = 0;
+  let count = 0;
+  let best: { amount: number; fee: number } | null = null;
+  for (const utxo of sorted) {
+    sum += utxo.value;
+    count += 1;
+    const fee = feeFor(args.feeRate, count, 1);
+    const amount = sum - fee;
+    if (best === null || amount > best.amount) best = { amount, fee };
+  }
+  if (best === null || best.amount < args.dustLimit) {
+    throw new TxError(
+      "Balance too small to send after the fee.",
+      "insufficient",
+    );
+  }
+  return best;
+}
+
 export interface SendInput {
   txid: string;
   vout: number;

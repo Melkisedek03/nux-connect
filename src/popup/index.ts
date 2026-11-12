@@ -59,6 +59,7 @@ type InternalRequest =
   | "popupSendConfirm"
   | "popupSendCancel"
   | "getPendingWalletSend"
+  | "getMaxSendable"
   | "getLastSend"
   | "addressBookList"
   | "addressBookAdd"
@@ -177,6 +178,11 @@ let setupMode: "create" | "import" = "create";
  * shows — balances, activity, last send — formats through it. */
 let displayUnit: DisplayUnit = "nusan";
 
+/** The last-known confirmed balance, for the review's remaining
+ * figure. Updated on every successful status read; null until the
+ * first one lands. */
+let lastConfirmedBalance: number | null = null;
+
 /** Apply the current unit to the static labels: the toggle button,
  * the hero unit, the send form's label, and the send field's
  * keyboard. The send amount itself is cleared — a value typed under
@@ -232,6 +238,7 @@ function renderWallet(status: StatusResult): void {
   // below still says the backend failed. The hero total only moves
   // when both halves are known — a half-known total would be wrong.
   if (status.confirmedBalance !== null) {
+    lastConfirmedBalance = status.confirmedBalance;
     setText(
       "confirmedBalance",
       formatAmountValue(status.confirmedBalance, displayUnit),
@@ -749,6 +756,29 @@ async function handleSend(): Promise<void> {
   }
 }
 
+async function handleSendMax(): Promise<void> {
+  const button = el<HTMLButtonElement>("sendMax");
+  setText("sendError", "");
+  button.disabled = true;
+  try {
+    const result = await call<{ amount: number; fee: number; feeRate: number }>(
+      "getMaxSendable",
+    );
+    const input = el<HTMLInputElement>("sendAmount");
+    input.value = formatAmountValue(result.amount, displayUnit);
+    formatAmountInput(input);
+  } catch (error) {
+    setText(
+      "sendError",
+      error instanceof Error
+        ? error.message
+        : "Tidak bisa menghitung jumlah maksimum.",
+    );
+  } finally {
+    button.disabled = false;
+  }
+}
+
 /** The pending wallet send under inline review, if any. */
 let reviewPendingId: string | null = null;
 
@@ -773,6 +803,15 @@ function showReview(pending: PendingWalletSend): void {
   setText(
     "reviewRbf",
     summary.rbf ? "Ya — transaksi ini bisa diganti" : "Tidak",
+  );
+  // What stays in the wallet after this send: the confirmed balance
+  // minus the total out. The change is already inside that figure
+  // (it comes back as a new output), so it is not added twice.
+  setText(
+    "reviewRemaining",
+    lastConfirmedBalance === null
+      ? "—"
+      : formatAmount(lastConfirmedBalance - summary.total, displayUnit),
   );
   setText("reviewError", "");
   el("reviewDecideRow").hidden = false;
@@ -851,10 +890,24 @@ async function resumePendingReview(): Promise<void> {
   }
 }
 
+/** The currently visible view, if any. */
+function currentView(): (typeof VIEWS)[number] | null {
+  for (const id of VIEWS) {
+    if (!el(id).hidden) return id;
+  }
+  return null;
+}
+
 async function refresh(): Promise<void> {
+  // A refresh that started on one view must not yank the user back
+  // when it lands after they navigated away: the 5 s live refresh
+  // fires on the home view, but its status read can resolve after
+  // the user reached the send form or the review.
+  const viewBefore = currentView();
   const status = await call<StatusResult>("getStatus");
   // Opening the popup clears the incoming-coins badge (locked rule).
   void call("notificationsOpened").catch(() => {});
+  if (currentView() !== viewBefore) return;
   setText(
     "networkBadge",
     status.network === "testnet" ? "TESTNET" : status.network.toUpperCase(),
@@ -1006,6 +1059,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   el("receiveRefresh").addEventListener("click", () => void handleReceiveRefresh());
   el("sendSubmit").addEventListener("click", () => void handleSend());
+  el("sendMax").addEventListener("click", () => void handleSendMax());
   el("reviewApprove").addEventListener("click", () => void handleReviewConfirm());
   el("reviewReject").addEventListener("click", () => void handleReviewCancel());
   el("reviewBack").addEventListener("click", () => show("viewSend"));
