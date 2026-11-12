@@ -392,6 +392,16 @@ document.addEventListener("DOMContentLoaded", () => {
   el("setupSubmit").addEventListener("click", () => void handleSetup());
   el("mnemonicConfirm").addEventListener("click", () => void refresh());
   el("unlockSubmit").addEventListener("click", () => void handleUnlock());
+  // The password field is not inside a <form>, so Enter does nothing
+  // by itself — wire it to unlock, the same action as the button. The
+  // disabled check is the in-flight signal handleUnlock manages, so a
+  // fast double-Enter cannot start a second unlock while one runs.
+  el("unlockPassword").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (el<HTMLButtonElement>("unlockSubmit").disabled) return;
+    void handleUnlock();
+  });
   el("lockSubmit").addEventListener("click", () => {
     void call("vaultLock").then(() => refresh());
   });
