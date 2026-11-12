@@ -26,6 +26,12 @@
 
 import "../lib/globals";
 import {
+  AddressBookError,
+  addAddressBookEntry,
+  listAddressBookEntries,
+  removeAddressBookEntry,
+} from "../lib/addressbook";
+import {
   connectOrigin,
   disconnectOrigin as removeConnection,
   isOriginConnected,
@@ -943,6 +949,8 @@ interface InternalMessage {
   to?: string;
   amount?: number;
   rbf?: boolean;
+  label?: string;
+  address?: string;
 }
 
 type InternalHandler = (message: InternalMessage) => Promise<unknown>;
@@ -1169,6 +1177,32 @@ const internalHandlers: Record<string, InternalHandler> = {
     const stored = await chrome.storage.local.get(LAST_SEND_KEY);
     const lastSend = stored[LAST_SEND_KEY] as LastPopupSend | undefined;
     return { lastSend: lastSend ?? null };
+  },
+  addressBookList: async () => {
+    const entries = await listAddressBookEntries();
+    const network = activeNetwork();
+    return { entries: entries.filter((entry) => entry.network === network.id) };
+  },
+  addressBookAdd: async (message) => {
+    try {
+      const entry = await addAddressBookEntry(
+        message.label ?? "",
+        message.address ?? "",
+        activeNetwork(),
+      );
+      return { entry };
+    } catch (error) {
+      // Same rule as the popup send path: only ProviderRpcError
+      // messages reach the popup, so translate here.
+      if (error instanceof AddressBookError) {
+        throw new ProviderRpcError(ERROR_INVALID_PARAMS, error.message);
+      }
+      throw error;
+    }
+  },
+  addressBookRemove: async (message) => {
+    const removed = await removeAddressBookEntry(message.id ?? "");
+    return { removed };
   },
 };
 

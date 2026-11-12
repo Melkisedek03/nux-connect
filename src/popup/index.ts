@@ -49,7 +49,18 @@ type InternalRequest =
   | "notificationsOpened"
   | "popupSendDraft"
   | "getLastSend"
+  | "addressBookList"
+  | "addressBookAdd"
+  | "addressBookRemove"
   | "disconnectOrigin";
+
+interface AddressBookEntry {
+  id: string;
+  label: string;
+  address: string;
+  network: string;
+  createdAt: number;
+}
 
 interface LastSend {
   to: string;
@@ -132,6 +143,7 @@ function renderWallet(status: StatusResult): void {
   void renderConnections();
   void renderActivity();
   void renderLastSend();
+  void renderAddressBook();
 }
 
 function renderConnectionsList(connections: Connection[]): void {
@@ -236,6 +248,80 @@ async function renderLastSend(): Promise<void> {
     }
   } catch {
     // The wallet view stays usable without the last-send line.
+  }
+}
+
+function renderAddressBookList(entries: AddressBookEntry[]): void {
+  const list = el("addressBookList");
+  list.innerHTML = "";
+  if (entries.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "No saved addresses yet.";
+    list.appendChild(empty);
+    return;
+  }
+  for (const entry of entries) {
+    const row = document.createElement("p");
+    const text = document.createElement("span");
+    text.textContent = `${entry.label} — ${entry.address}`;
+    row.appendChild(text);
+    const use = document.createElement("button");
+    use.type = "button";
+    use.textContent = "Use";
+    use.addEventListener("click", () => {
+      el<HTMLInputElement>("sendTo").value = entry.address;
+    });
+    row.appendChild(use);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Delete";
+    remove.className = "secondary";
+    remove.addEventListener("click", () => void handleAddressBookRemove(entry.id));
+    row.appendChild(remove);
+    list.appendChild(row);
+  }
+}
+
+async function renderAddressBook(): Promise<void> {
+  try {
+    const result = await call<{ entries: AddressBookEntry[] }>("addressBookList");
+    renderAddressBookList(result.entries);
+  } catch {
+    // The wallet view stays usable without the address book.
+  }
+}
+
+async function handleAddressBookAdd(): Promise<void> {
+  const label = el<HTMLInputElement>("addressBookLabel").value.trim();
+  const address = el<HTMLInputElement>("addressBookAddress").value.trim();
+  setText("addressBookError", "");
+  if (!label) {
+    setText("addressBookError", "Enter a label.");
+    return;
+  }
+  if (!address) {
+    setText("addressBookError", "Enter an address.");
+    return;
+  }
+  try {
+    await call<unknown>("addressBookAdd", { label, address });
+    el<HTMLInputElement>("addressBookLabel").value = "";
+    el<HTMLInputElement>("addressBookAddress").value = "";
+    await renderAddressBook();
+  } catch (error) {
+    setText(
+      "addressBookError",
+      error instanceof Error ? error.message : "Could not add the address.",
+    );
+  }
+}
+
+async function handleAddressBookRemove(id: string): Promise<void> {
+  try {
+    await call<unknown>("addressBookRemove", { id });
+    await renderAddressBook();
+  } catch {
+    // The entry stays listed; the next refresh retries the view.
   }
 }
 
@@ -406,6 +492,7 @@ document.addEventListener("DOMContentLoaded", () => {
     void call("vaultLock").then(() => refresh());
   });
   el("sendSubmit").addEventListener("click", () => void handleSend());
+  el("addressBookAdd").addEventListener("click", () => void handleAddressBookAdd());
   el("notificationsToggle").addEventListener("change", (event) => {
     const enabled = (event.target as HTMLInputElement).checked;
     void call<{ enabled: boolean }>("setNotificationsEnabled", { enabled })
