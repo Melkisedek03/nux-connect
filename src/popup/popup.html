@@ -13,14 +13,16 @@
         font-display: swap;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      /* The canvas behind the popup is transparent, so the panel's
-         rounded corners show true alpha instead of a white bleed. */
+      /* The canvas behind the popup is the browser's white canvas, not
+         the desktop: a transparent body would show white corner
+         triangles around the panel. So the body carries the dark frame
+         color instead, and the corners read as part of the design. */
       html { background: transparent; }
       body {
         font-family: "Baloo 2", "Comic Sans MS", "Chalkboard SE", system-ui, sans-serif;
         width: 360px;
         color: #062b12;
-        background: transparent;
+        background: #062b12;
       }
       /* The rounded frame is a real element, not the body: a body's
          background propagates to the canvas (the full rectangle),
