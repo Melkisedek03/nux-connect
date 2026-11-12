@@ -4,9 +4,10 @@
 // worker, which checks the electrs instance for new UTXOs on the
 // watched receive-chain addresses and compares them against the
 // txids it has already seen (chrome.storage.local). A new external
-// UTXO fires one system notification at mempool sighting; when it
-// confirms, the popup activity entry flips to "confirmed" with NO
-// second system notification.
+// UTXO fires one system notification at mempool sighting, and a
+// second one when it confirms (two notifications, different status):
+// scheduled mining makes the gap between sighting and confirmation
+// long, so the confirmation needs its own announcement.
 //
 // Gentleness is a design requirement, learned from the Milestone 4
 // rate-limit saga: a poll reads only the watched addresses' UTXO
@@ -117,12 +118,18 @@ function networkTag(network: NuxNetwork): string {
 async function notifyIncoming(
   network: NuxNetwork,
   entry: ActivityEntry,
+  stage: "pending" | "confirmed",
 ): Promise<void> {
+  // Each stage gets its own notification id, so the confirmation
+  // appears as a second, separate notification instead of silently
+  // replacing the mempool one.
+  const id =
+    stage === "confirmed" ? `confirmed:${entry.key}` : `incoming:${entry.key}`;
   const message =
-    entry.status === "confirmed"
+    stage === "confirmed"
       ? `+${entry.amount} nusan — terkonfirmasi`
       : `+${entry.amount} nusan — menunggu konfirmasi`;
-  await chrome.notifications.create(`incoming:${entry.key}`, {
+  await chrome.notifications.create(id, {
     type: "basic",
     iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
     title: `[${networkTag(network)}] NUX masuk`,
@@ -178,7 +185,10 @@ export async function runNotificationCheck(args: {
       const key = `${utxo.txid}:${utxo.vout}`;
       const existing = seen[key];
       if (existing) {
-        // Flip a pending entry to confirmed; no second notification.
+        // Flip a pending entry to confirmed and fire the second
+        // notification (same amount, "terkonfirmasi" status). The
+        // flip can only happen once per entry, so the second
+        // notification cannot repeat.
         if (
           existing.status === "pending" &&
           utxo.status.confirmed
@@ -186,6 +196,9 @@ export async function runNotificationCheck(args: {
           existing.status = "confirmed";
           existing.confirmedAt = Date.now();
           flippedToConfirmed += 1;
+          if (enabled) {
+            await notifyIncoming(network, existing, "confirmed");
+          }
         }
         continue;
       }
@@ -216,7 +229,15 @@ export async function runNotificationCheck(args: {
       if (!internal) {
         newExternal += 1;
         if (enabled) {
-          await notifyIncoming(network, entry);
+          // An arrival first seen already confirmed fires its single
+          // notification with the "confirmed" stage; a mempool
+          // sighting fires the "pending" one and the confirmation
+          // follows later as the second notification.
+          await notifyIncoming(
+            network,
+            entry,
+            entry.status === "confirmed" ? "confirmed" : "pending",
+          );
         }
       }
     }

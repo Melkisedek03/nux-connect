@@ -203,8 +203,12 @@ ke daftar "Yang termasuk" dalam Ruang lingkup MVP, dengan teks berikut:
 >   ringan. Izin manifest yang ditambahkan: `notifications` dan `alarms`.
 > - **Waktu tembak.** Notifikasi pertama ditembak saat transaksi terlihat
 >   di mempool (0 konfirmasi). Pada konfirmasi pertama, status entri di
->   daftar aktivitas popup berubah menjadi "terkonfirmasi"; tidak ada
->   notifikasi sistem kedua (menghindari kebisingan).
+>   daftar aktivitas popup berubah menjadi "terkonfirmasi" dan notifikasi
+>   sistem kedua ditembak ("+<jumlah> nusan — terkonfirmasi", dengan id
+>   berbeda dari notifikasi pertama). Jadi satu transaksi menghasilkan
+>   dua notifikasi dengan status berbeda: jeda penambangan terjadwal bisa
+>   panjang, sehingga konfirmasi perlu diberitahukan tersendiri.
+>   (Diubah 2026-11-12; sebelumnya hanya satu notifikasi.)
 > - **Aturan anti-change (wajib).** Notifikasi hanya untuk UTXO pada
 >   alamat rantai terima (`/0/x`) yang transaksi pembuatnya TIDAK memakai
 >   input dari alamat dompet sendiri — diperiksa dari `vin.prevout` pada
