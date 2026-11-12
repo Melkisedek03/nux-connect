@@ -180,7 +180,7 @@ function renderWallet(status: StatusResult): void {
     setText("feeRate", String(status.feeRate));
   }
   if (status.statusError) {
-    setText("walletNote", `Backend status: ${status.statusError}`);
+    setText("walletNote", `Status backend: ${status.statusError}`);
   } else {
     setText("walletNote", walletNoteDefault);
   }
@@ -520,7 +520,7 @@ async function renderMarket(status: StatusResult): Promise<void> {
     }
     setText(
       "marketSource",
-      `Market price — qutrade.io / Indodax · updated ${updated}`,
+      `Harga pasar — qutrade.io / Indodax · diperbarui ${updated}`,
     );
     const equivalent = el("marketEquivalent");
     const total =
@@ -528,7 +528,7 @@ async function renderMarket(status: StatusResult): Promise<void> {
     if (market.priceIdr !== null && total > 0) {
       // 1 NUX = 100,000,000 nusan.
       const idr = (total / 100_000_000) * market.priceIdr;
-      equivalent.textContent = `Balance ≈ Rp${formatIdr(idr)}`;
+      equivalent.textContent = `Saldo ≈ Rp${formatIdr(idr)}`;
       equivalent.hidden = false;
     } else if (
       status.confirmedBalance === null &&

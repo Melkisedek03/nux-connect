@@ -67,6 +67,13 @@
         box-shadow: 4px 4px 0 #062b12;
       }
       textarea { resize: vertical; }
+      /* The mask dots on password fields render at the input's font
+         size; bump them up with tracking so they match the chunky
+         textfield theme (per the vault mockup). */
+      input[type="password"] {
+        font-size: 20px;
+        letter-spacing: 4px;
+      }
       input[type="checkbox"] {
         width: auto;
         margin: 0 6px 0 0;
@@ -88,6 +95,7 @@
         background: #fff;
         color: #062b12;
       }
+      button.lebar { width: 100%; }
       button:disabled { opacity: 0.55; cursor: wait; }
       .tabs { display: flex; gap: 10px; }
       .tabs button { flex: 1; }
@@ -121,6 +129,7 @@
       .note {
         font-size: 12px;
         opacity: 0.75;
+        margin-top: 14px;
       }
       .version {
         font-size: 11px;
@@ -228,7 +237,22 @@
         box-shadow: 2px 2px 0 #062b12;
       }
       #lastSend { overflow-wrap: anywhere; }
-      #addressBookList { overflow-wrap: anywhere; }
+      #addressBookList { overflow-wrap: anywhere; margin-bottom: 10px; }
+      #addressBookList p {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin: 8px 0;
+      }
+      #addressBookList p span { flex: 1 1 100%; }
+      #addressBookList p button { margin: 0; }
+      /* The activity list grows with every incoming coin; cap it and
+         scroll instead of letting the card eat the popup. */
+      #activityList {
+        max-height: 120px;
+        overflow-y: auto;
+      }
       #marketInfo p { margin: 4px 0; }
       [hidden] { display: none !important; }
     </style>
@@ -278,7 +302,7 @@
         <input id="setupPasswordConfirm" type="password" autocomplete="new-password" />
       </label>
       <p class="error" id="setupError"></p>
-      <button id="setupSubmit" type="button">Lanjut</button>
+      <button id="setupSubmit" type="button" class="lebar">Lanjut</button>
       <p class="note">Cakupan demo, testnet saja. Mainnet terkunci.</p>
     </section>
 
@@ -292,7 +316,7 @@
       </p>
       <div class="words" id="mnemonicWords"></div>
       <p style="margin-top: 12px">
-        <button id="mnemonicConfirm" type="button">Sudah kusimpan</button>
+        <button id="mnemonicConfirm" type="button" class="lebar">Sudah kusimpan</button>
       </p>
     </section>
 
@@ -307,7 +331,7 @@
         <input id="unlockPassword" type="password" autocomplete="current-password" />
       </label>
       <p class="error" id="unlockError"></p>
-      <button id="unlockSubmit" type="button">Buka Vault</button>
+      <button id="unlockSubmit" type="button" class="lebar">Buka Vault</button>
       <p class="note tengah">
         Vault terkunci otomatis setelah 15 menit tidak dipakai. Kunci
         privat tidak pernah tersimpan — hanya diturunkan sesaat saat
@@ -369,7 +393,7 @@
       <p class="rincian-kecil">
         <span id="networkName">—</span> • Blok <span id="tipHeight">—</span> • Fee <span id="feeRate">—</span> nusan/vbyte
       </p>
-      <button id="lockSubmit" type="button" class="secondary">Kunci dompet</button>
+      <button id="lockSubmit" type="button" class="secondary lebar">Kunci dompet</button>
       <p class="note" id="walletNote">
         Dompet testnet. Pembayaran masuk diperiksa kira-kira tiap satu
         menit selama browser berjalan, dan hanya selama browser
@@ -393,7 +417,7 @@
         Tandai bisa diganti (RBF)
       </label>
       <p class="error" id="sendError"></p>
-      <p><button id="sendSubmit" type="button">Kirim</button></p>
+      <p><button id="sendSubmit" type="button" class="lebar">Kirim</button></p>
     </section>
 
     <section id="viewReceive" hidden>

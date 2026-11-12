@@ -76,6 +76,13 @@
         background: #fff;
         box-shadow: 4px 4px 0 #062b12;
       }
+      /* The mask dots on password fields render at the input's font
+         size; bump them up with tracking so they match the chunky
+         textfield theme (per the vault mockup). */
+      input[type="password"] {
+        font-size: 20px;
+        letter-spacing: 4px;
+      }
       button {
         border: 3px solid #062b12;
         border-radius: 14px;
@@ -168,6 +175,7 @@
         font-size: 12px;
         opacity: 0.75;
         text-align: center;
+        margin-top: 14px;
       }
       [hidden] { display: none !important; }
     </style>
