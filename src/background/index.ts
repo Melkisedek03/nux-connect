@@ -995,13 +995,7 @@ chrome.runtime.onInstalled.addListener(() => {
   }
   // Periodic wake-up: drives the vault auto-lock check and the
   // incoming-coin notification polling.
-  //
-  // TEST-ONLY fast poll (field QA): 15 seconds instead of the
-  // production 1 minute, so a watcher result arrives within one
-  // poll instead of up to a minute. Unpacked builds honour
-  // sub-minute periods; packed MV3 builds clamp to 30 seconds.
-  // Revert to periodInMinutes: 1 once field QA passes.
-  void chrome.alarms.create(POLL_ALARM, { periodInMinutes: 0.25 });
+  void chrome.alarms.create(POLL_ALARM, { periodInMinutes: 1 });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
