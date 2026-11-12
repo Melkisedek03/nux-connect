@@ -21,8 +21,9 @@
 //   gated against the stored state, so a missed event can never leak
 //   an address.
 // - Serve popup status: network, tip height, fee rate, and — when a
-//   wallet exists — the primary address and its balances, all from the
-//   active network's own electrs instance.
+//   wallet exists — the primary address and its balances, the balances
+//   from the persistent offline UTXO cache (synced from the active
+//   network's own electrs instance in the background).
 
 import "../lib/globals";
 import {
@@ -60,6 +61,7 @@ import {
   summarizePsbt,
   type PsbtSummary,
   type SendDraft,
+  type SendSummary,
 } from "../lib/tx";
 import {
   clearBadge,
@@ -81,7 +83,14 @@ import {
   mnemonicFromSession,
   touchSession,
   unlockVault,
+  type AccountPublics,
 } from "../lib/vault";
+import {
+  applyOwnBroadcast,
+  readWalletCache,
+  writeWalletCache,
+  type WalletCacheRecord,
+} from "../lib/walletcache";
 import {
   discoverWallet,
   ownershipMap,
@@ -106,123 +115,233 @@ async function walletPrimaryAddress(): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
-// Wallet discovery cache
+// Persistent offline UTXO cache (Milestone 9, PUNDI-style)
 //
-// A full discovery scan costs dozens of electrs requests (both chains
-// up to the gap limit), and the public instances rate-limit. Rescanning
-// from zero on every send attempt both fails against a warm limiter
-// and keeps it warm (field finding). The result is therefore cached
-// in session storage for a short window, keyed by network and primary
-// address; any successful broadcast of our own invalidates it at once,
-// because our own send changes the UTXO set.
+// A full discovery scan costs dozens of electrs requests, and building
+// a send from a cold scan kept the popup on "Preparing…" for 10-40
+// seconds with no feedback (field finding). The discovered wallet
+// state — used addresses, confirmed UTXOs, first-unused change
+// address, aggregated balances — is therefore kept in
+// chrome.storage.local (see lib/walletcache.ts), where it survives
+// browser restarts, and sends build from it immediately. Freshness
+// comes from three directions: the 1-minute alarm refreshes the cache
+// while the browser runs, status reads trigger a refresh when the
+// record is stale, and every own broadcast updates the record
+// optimistically. The selected inputs are verified against the network
+// before signing, so a stale cache can delay a send but never cause a
+// double-spend.
 
-const DISCOVERY_CACHE_KEY = "walletDiscoveryCache";
-const DISCOVERY_CACHE_TTL_MS = 60_000;
+const WALLET_CACHE_STALE_MS = 60_000;
 
-interface DiscoveryCacheRecord {
-  at: number;
-  network: string;
+let walletSyncPromise: Promise<WalletCacheRecord> | null = null;
+
+async function requireWalletPublics(): Promise<{
+  publics: AccountPublics;
   address: string;
-  state: WalletState;
-}
-
-async function discoverWalletCached(client: ElectrsClient): Promise<WalletState> {
+}> {
   const network = activeNetwork();
   const publics = await loadAccountPublics();
   if (!publics) {
     throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
   }
-  const address = primaryAddress(publics[network.id], network);
-  const stored = await chrome.storage.session.get(DISCOVERY_CACHE_KEY);
-  const cached = stored[DISCOVERY_CACHE_KEY] as
-    | DiscoveryCacheRecord
-    | undefined;
-  if (
-    cached &&
-    cached.network === network.id &&
-    cached.address === address &&
-    Date.now() - cached.at < DISCOVERY_CACHE_TTL_MS
-  ) {
-    return cached.state;
-  }
-  const state = await discoverWallet(client, publics[network.id], network);
-  const record: DiscoveryCacheRecord = {
-    at: Date.now(),
-    network: network.id,
-    address,
-    state,
-  };
-  await chrome.storage.session.set({ [DISCOVERY_CACHE_KEY]: record });
-  // A fresh discovery refreshes the watcher's address list for free.
-  void updateWatchedAddresses(state).catch(() => {});
-  return state;
+  return { publics, address: primaryAddress(publics[network.id], network) };
 }
 
-async function invalidateDiscoveryCache(): Promise<void> {
-  await chrome.storage.session.remove(DISCOVERY_CACHE_KEY);
-}
-
-// Aggregated balances: confirmed and unconfirmed sums across every
-// used address on both chains. The primary address alone misses
-// change outputs — they land on change-chain addresses — which made
-// the unconfirmed figure show the whole spent input instead of the
-// net outflow after a send (field finding: a 8,000-nusan send from a
-// 35,000-nusan UTXO showed -35,000 instead of -8,280). The result is
-// cached like the discovery (same 60 s window, same key shape) and
-// invalidated by any successful broadcast of our own, so the popup's
-// five-second refresh reads the cache instead of re-aggregating.
-
-const BALANCE_CACHE_KEY = "walletBalanceCache";
-const BALANCE_CACHE_TTL_MS = 60_000;
-
-interface BalanceCacheRecord {
-  at: number;
-  network: string;
-  address: string;
-  confirmed: number;
-  unconfirmed: number;
-}
-
-async function getAggregatedBalances(
+/**
+ * Full wallet sync: discovery + balance aggregation, written to the
+ * persistent cache. Concurrent callers share one in-flight sync, so a
+ * status read and an alarm tick never double-scan.
+ */
+async function syncWalletCache(
   client: ElectrsClient,
-  primaryAddress: string,
+): Promise<WalletCacheRecord> {
+  if (walletSyncPromise) return walletSyncPromise;
+  walletSyncPromise = (async () => {
+    try {
+      const network = activeNetwork();
+      const { publics, address } = await requireWalletPublics();
+      const state = await discoverWallet(
+        client,
+        publics[network.id],
+        network,
+      );
+      // Unused addresses have zero history by definition, so they add
+      // nothing; one info call per used address carries both balances.
+      // The primary address alone misses change outputs — they land on
+      // change-chain addresses — which once made the unconfirmed figure
+      // show the whole spent input instead of the net outflow after a
+      // send (field finding: a 8,000-nusan send from a 35,000-nusan
+      // UTXO showed -35,000 instead of -8,280).
+      let confirmed = 0;
+      let unconfirmed = 0;
+      for (const entry of state.addresses) {
+        if (!entry.used) continue;
+        const info = await client.getAddressInfo(entry.address);
+        confirmed +=
+          info.chainStats.fundedTxoSum - info.chainStats.spentTxoSum;
+        unconfirmed +=
+          info.mempoolStats.fundedTxoSum - info.mempoolStats.spentTxoSum;
+      }
+      let tipHeight = 0;
+      try {
+        tipHeight = await client.getTipHeight();
+      } catch {
+        const previous = await readWalletCache(network.id, address);
+        tipHeight = previous?.tipHeight ?? 0;
+      }
+      const record: WalletCacheRecord = {
+        syncedAt: Date.now(),
+        tipHeight,
+        state,
+        confirmed,
+        unconfirmed,
+      };
+      await writeWalletCache(network.id, address, record);
+      // A fresh discovery refreshes the watcher's address list for free.
+      void updateWatchedAddresses(state).catch(() => {});
+      return record;
+    } finally {
+      walletSyncPromise = null;
+    }
+  })();
+  return walletSyncPromise;
+}
+
+/**
+ * Fire-and-forget cache refresh: syncs when the record is missing or
+ * stale, shares the in-flight sync, never throws. Used by the alarm,
+ * by status reads, and after an own broadcast.
+ */
+async function refreshWalletCacheInBackground(): Promise<void> {
+  try {
+    const network = activeNetwork();
+    const { address } = await requireWalletPublics();
+    const cached = await readWalletCache(network.id, address);
+    if (cached && Date.now() - cached.syncedAt < WALLET_CACHE_STALE_MS) {
+      return;
+    }
+    await syncWalletCache(new ElectrsClient(network));
+  } catch {
+    // The next trigger retries; a failed refresh must never surface.
+  }
+}
+
+/**
+ * The wallet state, cache-first: the persistent record when present
+ * (any age — staleness is handled by verification at send time and by
+ * background refresh), a full sync only when no record exists.
+ */
+async function getWalletState(client: ElectrsClient): Promise<WalletState> {
+  const network = activeNetwork();
+  const { address } = await requireWalletPublics();
+  const cached = await readWalletCache(network.id, address);
+  if (cached) return cached.state;
+  const record = await syncWalletCache(client);
+  return record.state;
+}
+
+/**
+ * Aggregated balances, cache-first: the persistent record when
+ * present (triggering a background refresh when stale), a full sync
+ * only when no record exists.
+ */
+async function getCachedBalances(
+  client: ElectrsClient,
 ): Promise<{ confirmed: number; unconfirmed: number }> {
   const network = activeNetwork();
-  const stored = await chrome.storage.session.get(BALANCE_CACHE_KEY);
-  const cached = stored[BALANCE_CACHE_KEY] as BalanceCacheRecord | undefined;
-  if (
-    cached &&
-    cached.network === network.id &&
-    cached.address === primaryAddress &&
-    Date.now() - cached.at < BALANCE_CACHE_TTL_MS
-  ) {
+  const { address } = await requireWalletPublics();
+  const cached = await readWalletCache(network.id, address);
+  if (cached) {
+    if (Date.now() - cached.syncedAt >= WALLET_CACHE_STALE_MS) {
+      void refreshWalletCacheInBackground();
+    }
     return { confirmed: cached.confirmed, unconfirmed: cached.unconfirmed };
   }
-  const state = await discoverWalletCached(client);
-  // Unused addresses have zero history by definition, so they add
-  // nothing; one info call per used address carries both balances.
-  let confirmed = 0;
-  let unconfirmed = 0;
-  for (const entry of state.addresses) {
-    if (!entry.used) continue;
-    const info = await client.getAddressInfo(entry.address);
-    confirmed += info.chainStats.fundedTxoSum - info.chainStats.spentTxoSum;
-    unconfirmed +=
-      info.mempoolStats.fundedTxoSum - info.mempoolStats.spentTxoSum;
-  }
-  const record: BalanceCacheRecord = {
-    at: Date.now(),
-    network: network.id,
-    address: primaryAddress,
-    confirmed,
-    unconfirmed,
-  };
-  await chrome.storage.session.set({ [BALANCE_CACHE_KEY]: record });
-  return { confirmed, unconfirmed };
+  const record = await syncWalletCache(client);
+  return { confirmed: record.confirmed, unconfirmed: record.unconfirmed };
 }
 
-async function invalidateBalanceCache(): Promise<void> {
-  await chrome.storage.session.remove(BALANCE_CACHE_KEY);
+/** Optimistically apply an own broadcast to the persistent cache. */
+async function applyBroadcastToCache(summary: SendSummary): Promise<void> {
+  try {
+    const network = activeNetwork();
+    const { address } = await requireWalletPublics();
+    const cached = await readWalletCache(network.id, address);
+    if (!cached) return;
+    await writeWalletCache(
+      network.id,
+      address,
+      applyOwnBroadcast(cached, summary),
+    );
+  } catch {
+    // The background refresh after the broadcast rebuilds the cache.
+  }
+}
+
+/**
+ * Verify the draft's selected inputs against the network: any input
+ * already spent means the cache was stale. An unverifiable input
+ * (network trouble) passes — the broadcast is the ultimate arbiter
+ * and fails clearly if the input is gone.
+ */
+async function verifyDraftInputs(
+  client: ElectrsClient,
+  summary: SendSummary,
+): Promise<"ok" | "spent"> {
+  const results = await Promise.all(
+    summary.inputs.map(async (input) => {
+      try {
+        return await client.isUtxoSpent(input.txid, input.vout);
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return results.some(Boolean) ? "spent" : "ok";
+}
+
+/**
+ * Build a send draft from the cached wallet state, verified against
+ * the network. On a stale input (spent since the last sync), one fresh
+ * sync + rebuild is attempted; if the fresh draft is stale too, the
+ * send is refused with a clear error instead of broadcasting a doomed
+ * transaction. Throws TxError from the build (callers map it) and
+ * ProviderRpcError for the stale-after-refresh refusal.
+ */
+async function buildVerifiedDraft(
+  client: ElectrsClient,
+  args: {
+    to: string;
+    amount: number;
+    feeRate: number;
+    rbf?: boolean;
+  },
+): Promise<{ draft: SendDraft; state: WalletState }> {
+  const network = activeNetwork();
+  const build = (state: WalletState): SendDraft =>
+    buildSendTransaction({
+      utxos: state.utxos,
+      to: args.to,
+      amount: args.amount,
+      feeRate: args.feeRate,
+      network,
+      changeAddress: state.changeAddress.address,
+      rbf: args.rbf,
+    });
+  let state = await getWalletState(client);
+  let draft = build(state);
+  if ((await verifyDraftInputs(client, draft.summary)) === "spent") {
+    const fresh = await syncWalletCache(client);
+    state = fresh.state;
+    draft = build(state);
+    if ((await verifyDraftInputs(client, draft.summary)) === "spent") {
+      throw new ProviderRpcError(
+        ERROR_SERVER,
+        "The selected coins were just spent. The wallet was refreshed — please try again.",
+      );
+    }
+  }
+  return { draft, state };
 }
 
 // Market price cache (Milestone 8): the price is global, not
@@ -634,10 +753,20 @@ async function handleSendTransaction(
 
   const network = activeNetwork();
   const client = new ElectrsClient(network);
-  let state;
+  const networkRate = await client.getFeeRate();
+  const feeRate =
+    givenRate ??
+    Math.min(MAX_FEE_RATE, Math.max(1, Math.round(networkRate)));
+  let draft: SendDraft;
+  let state: WalletState;
   try {
-    state = await discoverWalletCached(client);
+    ({ draft, state } = await buildVerifiedDraft(client, {
+      to,
+      amount,
+      feeRate,
+    }));
   } catch (error) {
+    if (error instanceof TxError) throw txErrorToRpc(error);
     if (error instanceof ProviderRpcError) throw error;
     throw new ProviderRpcError(
       ERROR_SERVER,
@@ -645,24 +774,6 @@ async function handleSendTransaction(
         error instanceof Error ? error.message : "network error"
       }`,
     );
-  }
-  const networkRate = await client.getFeeRate();
-  const feeRate =
-    givenRate ??
-    Math.min(MAX_FEE_RATE, Math.max(1, Math.round(networkRate)));
-  let draft: SendDraft;
-  try {
-    draft = buildSendTransaction({
-      utxos: state.utxos,
-      to,
-      amount,
-      feeRate,
-      network,
-      changeAddress: state.changeAddress.address,
-    });
-  } catch (error) {
-    if (error instanceof TxError) throw txErrorToRpc(error);
-    throw error;
   }
   return openApprovalWindow(origin, "send", tabId, {
     sendDraft: draft,
@@ -712,7 +823,7 @@ async function handlePsbtRequest(
   const client = new ElectrsClient(network);
   let state;
   try {
-    state = await discoverWalletCached(client);
+    state = await getWalletState(client);
   } catch (error) {
     if (error instanceof ProviderRpcError) throw error;
     throw new ProviderRpcError(
@@ -802,10 +913,7 @@ async function handleProviderRequest(
         throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
       }
       const client = new ElectrsClient(activeNetwork());
-      const { confirmed, unconfirmed } = await getAggregatedBalances(
-        client,
-        address,
-      );
+      const { confirmed, unconfirmed } = await getCachedBalances(client);
       await touchSession();
       // Integer nusan, per the specification.
       return { confirmed, unconfirmed };
@@ -860,8 +968,8 @@ async function executeApproval(pending: PendingRequest): Promise<unknown> {
       signWalletPsbt(psbt, mnemonic, network, pending.sendOwnership);
       const hex = finalizeToHex(psbt);
       const txid = await new ElectrsClient(network).broadcastTx(hex);
-      await invalidateDiscoveryCache();
-      await invalidateBalanceCache();
+      await applyBroadcastToCache(pending.sendDraft.summary);
+      void refreshWalletCacheInBackground();
       return txid;
     }
     case "signMessage": {
@@ -885,8 +993,11 @@ async function executeApproval(pending: PendingRequest): Promise<unknown> {
       }
       const hex = finalizeToHex(psbt);
       const txid = await new ElectrsClient(network).broadcastTx(hex);
-      await invalidateDiscoveryCache();
-      await invalidateBalanceCache();
+      // No optimistic update here: the PSBT summary carries no
+      // outpoints, so the spent inputs are unknown. The background
+      // refresh rebuilds the cache, and the pre-sign verification
+      // guards the next send against the stale record meanwhile.
+      void refreshWalletCacheInBackground();
       return txid;
     }
   }
@@ -927,13 +1038,15 @@ async function handleGetStatus(): Promise<InternalStatus> {
     unconfirmedBalance: null,
   };
   try {
-    status.tipHeight = await client.getTipHeight();
-    status.feeRate = await client.getFeeRate();
+    // Balances first: they come from the persistent cache, so a tip or
+    // fee failure must not blank figures the cache already holds.
     if (status.address) {
-      const balances = await getAggregatedBalances(client, status.address);
+      const balances = await getCachedBalances(client);
       status.confirmedBalance = balances.confirmed;
       status.unconfirmedBalance = balances.unconfirmed;
     }
+    status.tipHeight = await client.getTipHeight();
+    status.feeRate = await client.getFeeRate();
   } catch (error) {
     status.statusError =
       error instanceof Error ? error.message : "electrs unreachable";
@@ -1122,32 +1235,19 @@ async function handlePopupSendDraft(
     );
   }
   const client = new ElectrsClient(network);
-  let state;
-  try {
-    state = await discoverWalletCached(client);
-  } catch (error) {
-    throw new ProviderRpcError(
-      ERROR_SERVER,
-      `Could not read the wallet's UTXOs: ${
-        error instanceof Error ? error.message : "network error"
-      }`,
-    );
-  }
   // No dApp supplies a fee rate here: the active network's own rate,
   // clamped to the locked 1..MAX_FEE_RATE band.
   const networkRate = await client.getFeeRate();
   const feeRate = Math.min(MAX_FEE_RATE, Math.max(1, Math.round(networkRate)));
   let draft: SendDraft;
+  let state: WalletState;
   try {
-    draft = buildSendTransaction({
-      utxos: state.utxos,
+    ({ draft, state } = await buildVerifiedDraft(client, {
       to,
       amount,
       feeRate,
-      network,
-      changeAddress: state.changeAddress.address,
       rbf,
-    });
+    }));
   } catch (error) {
     if (error instanceof TxError) {
       throw new ProviderRpcError(
@@ -1155,7 +1255,13 @@ async function handlePopupSendDraft(
         error.message,
       );
     }
-    throw error;
+    if (error instanceof ProviderRpcError) throw error;
+    throw new ProviderRpcError(
+      ERROR_SERVER,
+      `Could not read the wallet's UTXOs: ${
+        error instanceof Error ? error.message : "network error"
+      }`,
+    );
   }
   // Open the approval window without awaiting the decision: the popup
   // closes when the window takes focus, so nobody is left to receive
@@ -1332,11 +1438,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         client,
         network: activeNetwork(),
         primaryAddress: await walletPrimaryAddress(),
-        getWalletState: () => discoverWalletCached(client),
+        getWalletState: () => getWalletState(client),
       });
     } catch {
       // The next poll retries; the alarm itself keeps running.
     }
+    // Wallet cache refresh (Milestone 9). Keeps the offline UTXO cache
+    // fresh while the browser runs, so sends build from local data.
+    // Never throws; the next tick retries.
+    void refreshWalletCacheInBackground();
   })();
 });
 

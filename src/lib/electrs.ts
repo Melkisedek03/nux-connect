@@ -147,6 +147,23 @@ export class ElectrsClient {
     }
   }
 
+  /**
+   * Whether a UTXO is already spent, via the outspend endpoint. The
+   * public instances answer {"spent": false} even for unknown
+   * outpoints, so there is no 404 case; transport and parse failures
+   * throw, and the caller decides whether to proceed without
+   * verification.
+   */
+  async isUtxoSpent(txid: string, vout: number): Promise<boolean> {
+    const data = await this.getJson<{ spent?: unknown }>(
+      `/tx/${txid}/outspend/${vout}`,
+    );
+    if (typeof data?.spent !== "boolean") {
+      throw new Error("electrs outspend returned an unrecognized shape");
+    }
+    return data.spent;
+  }
+
   async getAddressInfo(address: string): Promise<AddressInfo> {
     const raw = await this.getJson<{
       address: string;
