@@ -319,6 +319,15 @@ interface ApprovalExtras {
   psbtOwnership?: Ownership;
 }
 
+/**
+ * Sentinel origin for approvals the wallet itself starts (a send from
+ * the popup). No website can have this origin, so it can never collide
+ * with a dApp request; the approval window renders it as "This wallet".
+ * It also gives popup sends the same one-at-a-time guard the provider
+ * path gets from pendingByOrigin.
+ */
+const WALLET_ORIGIN = "wallet";
+
 async function openApprovalWindow(
   origin: string,
   kind: ApprovalKind,
@@ -931,9 +940,184 @@ interface InternalMessage {
   approved?: boolean;
   origin?: string;
   enabled?: boolean;
+  to?: string;
+  amount?: number;
+  rbf?: boolean;
 }
 
 type InternalHandler = (message: InternalMessage) => Promise<unknown>;
+
+// ---------------------------------------------------------------------------
+// Popup-initiated sends (Milestone 6). The popup builds no transaction
+// itself: it sends {to, amount, rbf} here, the background builds the
+// draft with the same engine the provider path uses, and the same
+// approval window asks for the decision. Two differences from the
+// provider path: there is no dApp origin (WALLET_ORIGIN stands in),
+// and the result cannot be returned to the caller — the popup closes
+// when the approval window takes focus — so the settlement is
+// recorded in storage for the popup to show on its next open.
+
+const LAST_SEND_KEY = "lastPopupSend";
+
+interface LastPopupSend {
+  to: string;
+  amount: number;
+  fee: number;
+  rbf: boolean;
+  ok: boolean;
+  txid: string | null;
+  error: string | null;
+  at: number;
+}
+
+async function recordLastPopupSend(result: LastPopupSend): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [LAST_SEND_KEY]: result });
+  } catch {
+    // The send already settled; a lost record must not fail anything.
+  }
+}
+
+async function handlePopupSendDraft(
+  message: InternalMessage,
+): Promise<{ summary: SendDraft["summary"] }> {
+  // Errors here are ProviderRpcError on purpose: the onMessage wrapper
+  // passes only ProviderRpcError and VaultError messages through to
+  // the popup — a plain Error would surface as "Internal error." and
+  // the form could never tell the user what was wrong.
+  const to = typeof message.to === "string" ? message.to.trim() : "";
+  const amount = message.amount;
+  const rbf = message.rbf === true;
+  if (!to) {
+    throw new ProviderRpcError(
+      ERROR_INVALID_PARAMS,
+      "A recipient address is required.",
+    );
+  }
+  if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount <= 0) {
+    throw new ProviderRpcError(
+      ERROR_INVALID_PARAMS,
+      "Amount must be a positive integer number of nusan.",
+    );
+  }
+  if (!(await hasVault())) {
+    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "No wallet exists yet.");
+  }
+  if (!(await isUnlocked())) {
+    throw new ProviderRpcError(ERROR_UNAUTHORIZED, "The wallet is locked.");
+  }
+  if (pendingByOrigin.has(WALLET_ORIGIN)) {
+    throw new ProviderRpcError(
+      ERROR_SERVER,
+      "Another send from this wallet is awaiting approval.",
+    );
+  }
+  const network = activeNetwork();
+  if (amount < network.dustLimit) {
+    throw new ProviderRpcError(
+      ERROR_INVALID_PARAMS,
+      `Amount is below the dust limit (${network.dustLimit} nusan).`,
+    );
+  }
+  const client = new ElectrsClient(network);
+  let state;
+  try {
+    state = await discoverWalletCached(client);
+  } catch (error) {
+    throw new ProviderRpcError(
+      ERROR_SERVER,
+      `Could not read the wallet's UTXOs: ${
+        error instanceof Error ? error.message : "network error"
+      }`,
+    );
+  }
+  // No dApp supplies a fee rate here: the active network's own rate,
+  // clamped to the locked 1..MAX_FEE_RATE band.
+  const networkRate = await client.getFeeRate();
+  const feeRate = Math.min(MAX_FEE_RATE, Math.max(1, Math.round(networkRate)));
+  let draft: SendDraft;
+  try {
+    draft = buildSendTransaction({
+      utxos: state.utxos,
+      to,
+      amount,
+      feeRate,
+      network,
+      changeAddress: state.changeAddress.address,
+      rbf,
+    });
+  } catch (error) {
+    if (error instanceof TxError) {
+      throw new ProviderRpcError(
+        error.kind === "invalid" ? ERROR_INVALID_PARAMS : ERROR_SERVER,
+        error.message,
+      );
+    }
+    throw error;
+  }
+  // Open the approval window without awaiting the decision: the popup
+  // closes when the window takes focus, so nobody is left to receive
+  // the result. Record the settlement instead — except a user
+  // rejection, which is a deliberate "no", not a failed send.
+  const settled = openApprovalWindow(WALLET_ORIGIN, "send", undefined, {
+    sendDraft: draft,
+    sendOwnership: ownershipMap(state),
+  });
+  void settled.then(
+    (txid) =>
+      recordLastPopupSend({
+        to,
+        amount,
+        fee: draft.summary.fee,
+        rbf,
+        ok: true,
+        txid: typeof txid === "string" ? txid : null,
+        error: null,
+        at: Date.now(),
+      }),
+    (error) => {
+      if (
+        error instanceof ProviderRpcError &&
+        error.code === ERROR_USER_REJECTED
+      ) {
+        return;
+      }
+      return recordLastPopupSend({
+        to,
+        amount,
+        fee: draft.summary.fee,
+        rbf,
+        ok: false,
+        txid: null,
+        error: error instanceof Error ? error.message : "Send failed.",
+        at: Date.now(),
+      });
+    },
+  );
+  // openApprovalWindow only settles on the user's decision, so confirm
+  // the window itself opened before returning: the popup reports
+  // success on this return and must not claim a window that never
+  // appeared. The pending entry is registered synchronously, so this
+  // poll sees it at once; window creation normally lands in the first
+  // ticks, and a failed creation settles (and removes) the entry.
+  for (let i = 0; i < 50; i++) {
+    const pending = pendingByOrigin.get(WALLET_ORIGIN);
+    if (!pending) {
+      throw new ProviderRpcError(
+        ERROR_SERVER,
+        "Could not open the approval window.",
+      );
+    }
+    if (pending.windowId !== null) {
+      return { summary: draft.summary };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new ProviderRpcError(
+    ERROR_SERVER,
+    "The approval window did not open in time.",
+  );
+}
 
 const internalHandlers: Record<string, InternalHandler> = {
   getStatus: async () => handleGetStatus(),
@@ -979,6 +1163,12 @@ const internalHandlers: Record<string, InternalHandler> = {
     await removeConnection(origin);
     await emitAccountsChanged(origin);
     return { connections: await listConnections() };
+  },
+  popupSendDraft: async (message) => handlePopupSendDraft(message),
+  getLastSend: async () => {
+    const stored = await chrome.storage.local.get(LAST_SEND_KEY);
+    const lastSend = stored[LAST_SEND_KEY] as LastPopupSend | undefined;
+    return { lastSend: lastSend ?? null };
   },
 };
 

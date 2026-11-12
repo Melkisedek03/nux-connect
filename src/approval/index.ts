@@ -27,6 +27,7 @@ interface SendSummary {
   total: number;
   changeAddress: string | null;
   changeValue: number;
+  rbf: boolean;
 }
 
 interface PsbtSummary {
@@ -109,6 +110,17 @@ function networkNote(view: ApprovalRequestView): string {
   return `Network: ${view.networkLabel} (${view.network}).`;
 }
 
+/**
+ * The wallet itself, for approvals the popup starts (no dApp origin):
+ * the background uses the sentinel "wallet", rendered here as
+ * "This wallet".
+ */
+const WALLET_ORIGIN = "wallet";
+
+function displayOrigin(origin: string): string {
+  return origin === WALLET_ORIGIN ? "This wallet" : origin;
+}
+
 async function load(): Promise<void> {
   show("viewLoading");
   let view: ApprovalRequestView;
@@ -135,7 +147,7 @@ async function load(): Promise<void> {
     return;
   }
   if (!view.unlocked) {
-    setText("unlockOrigin", view.origin);
+    setText("unlockOrigin", displayOrigin(view.origin));
     setText("unlockError", "");
     show("viewUnlock");
     return;
@@ -143,7 +155,7 @@ async function load(): Promise<void> {
 
   switch (view.kind) {
     case "connect": {
-      setText("connectOrigin", view.origin);
+      setText("connectOrigin", displayOrigin(view.origin));
       setText("connectAddress", view.address ?? "—");
       setText("connectNetworkNote", networkNote(view));
       setText("connectError", "");
@@ -163,7 +175,7 @@ async function load(): Promise<void> {
         showError("The payment details are unavailable.");
         return;
       }
-      setText("sendOrigin", view.origin);
+      setText("sendOrigin", displayOrigin(view.origin));
       setText("sendTo", summary.to);
       setText("sendAmount", String(summary.amount));
       setText("sendFee", `${summary.fee} (at ${summary.feeRate} nusan/vbyte)`);
@@ -173,6 +185,10 @@ async function load(): Promise<void> {
         summary.changeAddress
           ? `${summary.changeValue} to this wallet's change address`
           : "0 (the remainder goes to the fee)",
+      );
+      setText(
+        "sendRbf",
+        summary.rbf ? "Yes — this transaction can be replaced" : "No",
       );
       setText("sendNetworkNote", networkNote(view));
       setText("sendError", "");
@@ -184,7 +200,7 @@ async function load(): Promise<void> {
         showError("The message is unavailable.");
         return;
       }
-      setText("signOrigin", view.origin);
+      setText("signOrigin", displayOrigin(view.origin));
       setText("signMessageText", view.message);
       setText("signNetworkNote", networkNote(view));
       setText("signError", "");
@@ -202,7 +218,7 @@ async function load(): Promise<void> {
         view.kind === "signPsbt" ? "Sign this PSBT?" : "Sign and send this PSBT?");
       setText("psbtSubmit",
         view.kind === "signPsbt" ? "Sign" : "Sign and send");
-      setText("psbtOrigin", view.origin);
+      setText("psbtOrigin", displayOrigin(view.origin));
       setText("psbtTotalIn", String(summary.totalIn));
       setText("psbtTotalOut", String(summary.totalOut));
       setText("psbtFee", `${summary.fee} (implied rate ${summary.feeRate} nusan/vbyte)`);

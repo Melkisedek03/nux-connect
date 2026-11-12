@@ -120,6 +120,7 @@
         line-height: 1.5;
       }
       .activity p { margin: 4px 0; }
+      #lastSend { overflow-wrap: anywhere; }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -209,6 +210,22 @@
         <dd id="feeRate">—</dd>
       </dl>
       <button id="lockSubmit" type="button" class="secondary">Lock wallet</button>
+      <h2>Send</h2>
+      <label>
+        To address
+        <input id="sendTo" type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <label>
+        Amount (nusan)
+        <input id="sendAmount" type="text" inputmode="numeric" autocomplete="off" />
+      </label>
+      <label>
+        <input type="checkbox" id="sendRbf" />
+        Signal replaceable (RBF)
+      </label>
+      <p class="error" id="sendError"></p>
+      <p><button id="sendSubmit" type="button">Send</button></p>
+      <p class="note" id="lastSend" hidden></p>
       <h2>Connected sites</h2>
       <div id="connectionsList">
         <p>No sites connected yet.</p>
