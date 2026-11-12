@@ -13,15 +13,24 @@
         font-display: swap;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
+      /* The canvas behind the window is transparent, so the panel's
+         rounded corners show true alpha instead of a white bleed. */
+      html { background: transparent; }
       body {
         font-family: "Baloo 2", "Comic Sans MS", "Chalkboard SE", system-ui, sans-serif;
         width: 400px;
         color: #062b12;
+        background: transparent;
+      }
+      /* The rounded frame is a real element, not the body: a body's
+         background propagates to the canvas (the full rectangle),
+         so a border-radius on the body clips nothing and the corners
+         stay square. The panel carries the green, rounds it, and
+         clips the header to the rounded top corners. */
+      .panel {
         background: #00e65c;
-        /* Rounded outer frame, matching the 14px card radius: the
-           window reads as a card, not a stiff rectangle. The header
-           rounds the top corners; this rounds the bottom ones. */
         border-radius: 14px;
+        overflow: hidden;
       }
       header {
         display: flex;
@@ -30,7 +39,6 @@
         padding: 14px 16px;
         background: #00c24e;
         border-bottom: 4px solid #062b12;
-        border-radius: 14px 14px 0 0;
       }
       .koin {
         width: 44px;
@@ -186,6 +194,7 @@
     </style>
   </head>
   <body>
+    <div class="panel">
     <header>
       <img class="koin" src="icons/icon-48.png" alt="" />
       <div>
@@ -297,6 +306,7 @@
       </div>
       <p class="note" id="psbtNetworkNote">Jaringan: Nusacoin Testnet (testnet).</p>
     </section>
+    </div>
     </div>
 
     <script type="module" src="approval.js"></script>
