@@ -97,7 +97,7 @@
       }
       #viewReceive h2, #viewReview h2, #viewNetworkConfirm h2 { margin-bottom: 0; }
       #viewReceive .error, #viewReview .error, #viewNetworkConfirm .error { margin: 0; }
-      #viewReceive .note { margin-top: 0; }
+      #viewReceive .note, #viewNetworkConfirm .note { margin-top: 0; }
       .label-row {
         display: flex;
         justify-content: space-between;
@@ -536,6 +536,7 @@
         <p>Untuk coba-coba, tetaplah di Testnet: koinnya tidak bernilai dan aman untuk latihan.</p>
       </div>
       <p class="error" id="networkConfirmError"></p>
+      <p class="note" id="networkConfirmStatus"></p>
       <div class="tombol">
         <button id="networkConfirmCancel" type="button" class="secondary">Batal</button>
         <button id="networkConfirmOk" type="button">Ya, pindah ke Mainnet</button>

@@ -245,22 +245,57 @@ let mainnetAcknowledged = false;
  * Batal returns there instead of always landing home. */
 let viewBeforeNetworkConfirm: (typeof VIEWS)[number] | null = null;
 
+/** True while a network switch is in flight. A switch is slow on a
+ * cold cache — the first switch to a network waits for a full
+ * discovery scan — so the flag keeps a second click (badge or
+ * confirm) from starting a duplicate switch, and the buttons stay
+ * disabled until it lands. */
+let switchingNetwork = false;
+
 /** Switch to the other network. The background rejects the wallet's
  * pending review (it belongs to the old network), so the local
  * review state is cleared too; the form keeps its values — a
  * recipient address for the other network fails the draft's
- * validation with a clear error, and the review names its network. */
+ * validation with a clear error, and the review names its network.
+ * Returns false when a switch is already in flight and this call
+ * was skipped, true when the switch ran. */
 async function switchNetwork(
   target: string,
   acknowledge: boolean,
-): Promise<void> {
-  const result = await call<{ network: string }>("setNetwork", {
-    network: target,
-    acknowledge,
-  });
-  reviewPendingId = null;
-  applyNetworkBadge(result.network);
-  await refresh();
+): Promise<boolean> {
+  if (switchingNetwork) return false;
+  switchingNetwork = true;
+  const badge = el<HTMLButtonElement>("networkBadge");
+  const ok = el<HTMLButtonElement>("networkConfirmOk");
+  const cancel = el<HTMLButtonElement>("networkConfirmCancel");
+  badge.disabled = true;
+  ok.disabled = true;
+  // Cancel stays disabled too: it only hides the card, it cannot
+  // stop a switch already in flight, so leaving it enabled would
+  // promise a cancellation that never happens.
+  cancel.disabled = true;
+  setText(
+    "networkConfirmStatus",
+    target === "mainnet"
+      ? "Memindai dompet Mainnet…"
+      : "Memindai dompet Testnet…",
+  );
+  try {
+    const result = await call<{ network: string }>("setNetwork", {
+      network: target,
+      acknowledge,
+    });
+    reviewPendingId = null;
+    applyNetworkBadge(result.network);
+    await refresh();
+    return true;
+  } finally {
+    switchingNetwork = false;
+    badge.disabled = false;
+    ok.disabled = false;
+    cancel.disabled = false;
+    setText("networkConfirmStatus", "");
+  }
 }
 
 async function handleNetworkBadgeClick(): Promise<void> {
@@ -281,19 +316,18 @@ async function handleNetworkBadgeClick(): Promise<void> {
 }
 
 async function handleNetworkConfirm(): Promise<void> {
-  const button = el<HTMLButtonElement>("networkConfirmOk");
   setText("networkConfirmError", "");
-  button.disabled = true;
   try {
-    await switchNetwork("mainnet", true);
-    mainnetAcknowledged = true;
+    // Only a switch that actually ran acknowledges mainnet; a
+    // skipped duplicate leaves the flag to the in-flight switch.
+    if (await switchNetwork("mainnet", true)) {
+      mainnetAcknowledged = true;
+    }
   } catch (error) {
     setText(
       "networkConfirmError",
       error instanceof Error ? error.message : "Tidak bisa pindah jaringan.",
     );
-  } finally {
-    button.disabled = false;
   }
 }
 
@@ -712,7 +746,7 @@ async function renderMarket(status: StatusResult): Promise<void> {
     }
     setText(
       "marketSource",
-      `Harga pasar — qutrade.io / Indodax · diperbarui ${updated}`,
+      `Harga pasar — qutrade.io · diperbarui ${updated}`,
     );
     const equivalent = el("marketEquivalent");
     const total =
