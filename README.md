@@ -154,8 +154,15 @@ confirmed UTXOs (largest-first selection, dust change folded into the
 fee) and broadcasts after approval; `nux_signMessage` signs in Nusacoin
 Core's legacy format; `nux_signPsbt` and `nux_sendPsbt` sign PSBTs
 after ownership and implied-fee-rate guard checks — each method behind
-an approval window showing the exact details that will execute. The
-incoming-coin notification watcher arrives in a later milestone.
+an approval window showing the exact details that will execute.
+Milestone 5 adds the incoming-coin watcher: the 1-minute alarm polls
+the watched receive addresses' UTXO lists (never a full discovery
+scan, so the shared rate limiter stays calm), fires one "[TESTNET]
+NUX masuk" system notification at mempool sighting, flips the popup
+activity entry to confirmed at 1 confirmation with no second
+notification, and never notifies for the wallet's own change (checked
+against `vin.prevout`). The watcher runs while the vault is locked,
+and a popup toggle (on by default) silences it.
 
 A derivation verification harness cross-checks the key engine against
 an independent implementation and the test vectors published in BIP84:

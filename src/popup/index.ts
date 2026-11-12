@@ -26,6 +26,17 @@ interface Connection {
   addresses: string[];
 }
 
+interface ActivityEntry {
+  key: string;
+  txid: string;
+  vout: number;
+  address: string;
+  amount: number;
+  status: "pending" | "confirmed" | "internal";
+  firstSeenAt: number;
+  confirmedAt?: number;
+}
+
 type InternalRequest =
   | "getStatus"
   | "vaultCreate"
@@ -33,6 +44,9 @@ type InternalRequest =
   | "vaultUnlock"
   | "vaultLock"
   | "getConnections"
+  | "getActivity"
+  | "setNotificationsEnabled"
+  | "notificationsOpened"
   | "disconnectOrigin";
 
 function call<T>(request: InternalRequest, payload: object = {}): Promise<T> {
@@ -103,6 +117,7 @@ function renderWallet(status: StatusResult): void {
   }
   show("viewWallet");
   void renderConnections();
+  void renderActivity();
 }
 
 function renderConnectionsList(connections: Connection[]): void {
@@ -149,8 +164,49 @@ async function renderConnections(): Promise<void> {
   }
 }
 
+function statusLabel(entry: ActivityEntry): string {
+  return entry.status === "confirmed"
+    ? "terkonfirmasi"
+    : entry.status === "pending"
+      ? "menunggu konfirmasi"
+      : "internal";
+}
+
+function renderActivityList(entries: ActivityEntry[]): void {
+  const list = el("activityList");
+  list.textContent = "";
+  const visible = entries.filter((entry) => entry.status !== "internal");
+  if (visible.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "No incoming coins yet.";
+    list.appendChild(empty);
+    return;
+  }
+  for (const entry of visible) {
+    const row = document.createElement("p");
+    const when = new Date(entry.firstSeenAt).toLocaleString();
+    row.textContent =
+      `+${entry.amount} nusan — ${statusLabel(entry)} — ${when}`;
+    list.appendChild(row);
+  }
+}
+
+async function renderActivity(): Promise<void> {
+  try {
+    const result = await call<{ entries: ActivityEntry[]; enabled: boolean }>(
+      "getActivity",
+    );
+    el<HTMLInputElement>("notificationsToggle").checked = result.enabled;
+    renderActivityList(result.entries);
+  } catch {
+    // The wallet view stays usable without the activity list.
+  }
+}
+
 async function refresh(): Promise<void> {
   const status = await call<StatusResult>("getStatus");
+  // Opening the popup clears the incoming-coins badge (locked rule).
+  void call("notificationsOpened").catch(() => {});
   setText(
     "networkBadge",
     status.network === "testnet" ? "TESTNET" : status.network.toUpperCase(),
@@ -235,6 +291,16 @@ document.addEventListener("DOMContentLoaded", () => {
   el("unlockSubmit").addEventListener("click", () => void handleUnlock());
   el("lockSubmit").addEventListener("click", () => {
     void call("vaultLock").then(() => refresh());
+  });
+  el("notificationsToggle").addEventListener("change", (event) => {
+    const enabled = (event.target as HTMLInputElement).checked;
+    void call<{ enabled: boolean }>("setNotificationsEnabled", { enabled })
+      .then((result) => {
+        el<HTMLInputElement>("notificationsToggle").checked = result.enabled;
+      })
+      .catch(() => {
+        el<HTMLInputElement>("notificationsToggle").checked = !enabled;
+      });
   });
   void refresh().catch((error: unknown) => {
     setText(

@@ -55,6 +55,14 @@ import {
   type SendDraft,
 } from "../lib/tx";
 import {
+  clearBadge,
+  getActivityEntries,
+  isNotificationsEnabled,
+  runNotificationCheck,
+  setNotificationsEnabled,
+  updateWatchedAddresses,
+} from "../lib/notifications";
+import {
   VaultError,
   checkAutoLock,
   createVault,
@@ -138,6 +146,8 @@ async function discoverWalletCached(client: ElectrsClient): Promise<WalletState>
     state,
   };
   await chrome.storage.session.set({ [DISCOVERY_CACHE_KEY]: record });
+  // A fresh discovery refreshes the watcher's address list for free.
+  void updateWatchedAddresses(state).catch(() => {});
   return state;
 }
 
@@ -920,6 +930,7 @@ interface InternalMessage {
   id?: string;
   approved?: boolean;
   origin?: string;
+  enabled?: boolean;
 }
 
 type InternalHandler = (message: InternalMessage) => Promise<unknown>;
@@ -949,6 +960,20 @@ const internalHandlers: Record<string, InternalHandler> = {
   resolveApproval: async (message) =>
     handleResolveApproval(message.id ?? "", message.approved === true),
   getConnections: async () => ({ connections: await listConnections() }),
+  getActivity: async () => ({
+    entries: await getActivityEntries(),
+    enabled: await isNotificationsEnabled(),
+  }),
+  setNotificationsEnabled: async (message) => {
+    const enabled = message.enabled === true;
+    await setNotificationsEnabled(enabled);
+    if (!enabled) await clearBadge();
+    return { enabled };
+  },
+  notificationsOpened: async () => {
+    await clearBadge();
+    return { ok: true };
+  },
   disconnectOrigin: async (message) => {
     const origin = message.origin ?? "";
     await removeConnection(origin);
@@ -978,6 +1003,20 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   void (async () => {
     if (await checkAutoLock()) {
       await emitAccountsChangedEverywhere();
+    }
+    // Incoming-coin watch (Milestone 5). A watcher failure must never
+    // break the alarm or the auto-lock above; and the check needs no
+    // unlocked vault — it only reads public addresses.
+    try {
+      const client = new ElectrsClient(activeNetwork());
+      await runNotificationCheck({
+        client,
+        network: activeNetwork(),
+        primaryAddress: await walletPrimaryAddress(),
+        getWalletState: () => discoverWalletCached(client),
+      });
+    } catch {
+      // The next poll retries; the alarm itself keeps running.
     }
   })();
 });
