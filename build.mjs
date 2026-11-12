@@ -62,5 +62,6 @@ cpSync("src/manifest.json", `${OUT}/manifest.json`);
 cpSync("src/popup/popup.html", `${OUT}/popup.html`);
 cpSync("src/approval/approval.html", `${OUT}/approval.html`);
 cpSync("src/icons", `${OUT}/icons`, { recursive: true });
+cpSync("src/fonts", `${OUT}/fonts`, { recursive: true });
 
 console.log("Build complete: dist/ is ready for Load unpacked.");

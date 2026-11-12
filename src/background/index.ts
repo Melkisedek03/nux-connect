@@ -86,6 +86,12 @@ import {
   type AccountPublics,
 } from "../lib/vault";
 import {
+  currentReceiveAddress,
+  nextUnusedReceiveIndex,
+  readReceiveAddressIndex,
+  writeReceiveAddressIndex,
+} from "../lib/receiveaddress";
+import {
   applyOwnBroadcast,
   readWalletCache,
   writeWalletCache,
@@ -198,7 +204,7 @@ async function syncWalletCache(
       };
       await writeWalletCache(network.id, address, record);
       // A fresh discovery refreshes the watcher's address list for free.
-      void updateWatchedAddresses(state).catch(() => {});
+      void updateWatchedAddresses(state, network, address).catch(() => {});
       return record;
     } finally {
       walletSyncPromise = null;
@@ -1405,6 +1411,41 @@ const internalHandlers: Record<string, InternalHandler> = {
     return { removed };
   },
   getMarketInfo: async () => ({ market: await getMarketInfoCached() }),
+  getReceiveAddress: async () => {
+    const network = activeNetwork();
+    const { address } = await requireWalletPublics();
+    const state = await getWalletState(new ElectrsClient(network));
+    const index = await readReceiveAddressIndex(network.id, address);
+    const current = currentReceiveAddress(state, index);
+    return {
+      address: current.address,
+      index: current.index,
+      canRefresh: nextUnusedReceiveIndex(state, current.index) !== null,
+    };
+  },
+  refreshReceiveAddress: async () => {
+    const network = activeNetwork();
+    const { address } = await requireWalletPublics();
+    const state = await getWalletState(new ElectrsClient(network));
+    const index = await readReceiveAddressIndex(network.id, address);
+    const current = currentReceiveAddress(state, index);
+    const next = nextUnusedReceiveIndex(state, current.index);
+    if (next === null) {
+      throw new ProviderRpcError(
+        ERROR_INVALID_PARAMS,
+        "No further unused receive address is available.",
+      );
+    }
+    await writeReceiveAddressIndex(network.id, address, next);
+    const refreshed = currentReceiveAddress(state, next);
+    // Watch the fresh address at once, so its first payment notifies.
+    await updateWatchedAddresses(state, network, address);
+    return {
+      address: refreshed.address,
+      index: refreshed.index,
+      canRefresh: nextUnusedReceiveIndex(state, refreshed.index) !== null,
+    };
+  },
 };
 
 chrome.runtime.onInstalled.addListener(() => {

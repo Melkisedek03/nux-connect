@@ -24,6 +24,10 @@
 
 import type { ElectrsClient } from "./electrs";
 import type { NuxNetwork } from "./networks";
+import {
+  currentReceiveAddress,
+  readReceiveAddressIndex,
+} from "./receiveaddress";
 import type { WalletState } from "./wallet";
 
 const WATCHED_ADDRESSES_KEY = "notificationWatchAddresses";
@@ -92,16 +96,29 @@ export async function setNotificationsEnabled(
 
 /**
  * Remember the receive-chain addresses worth polling: the primary
- * address plus every used receive address from the last discovery.
- * Called whenever a fresh discovery runs (sends, PSBT requests, and
- * the watcher's first pass); polls then read only this list.
+ * address plus every used receive address from the last discovery,
+ * plus the current receive address (the fresh address the refresh
+ * button shows — it is unused by definition, so without this line
+ * its first payment would wait for the next discovery to mark it
+ * used before notifying). Called whenever a fresh discovery runs
+ * (sends, PSBT requests, and the watcher's first pass); polls then
+ * read only this list.
  */
 export async function updateWatchedAddresses(
   state: WalletState,
+  network: NuxNetwork,
+  primaryAddress: string,
 ): Promise<void> {
   const watched = state.addresses
     .filter((entry) => entry.chain === 0 && (entry.used || entry.index === 0))
     .map((entry) => entry.address);
+  try {
+    const index = await readReceiveAddressIndex(network.id, primaryAddress);
+    const current = currentReceiveAddress(state, index);
+    if (!watched.includes(current.address)) watched.push(current.address);
+  } catch {
+    // Watching stays on the discovered set; the next update retries.
+  }
   await chrome.storage.local.set({ [WATCHED_ADDRESSES_KEY]: watched });
 }
 
@@ -171,7 +188,7 @@ export async function runNotificationCheck(args: {
 
   const state = await getWalletState();
   const owned = new Set(state.addresses.map((entry) => entry.address));
-  await updateWatchedAddresses(state);
+  await updateWatchedAddresses(state, network, args.primaryAddress);
   const watched = await loadWatchedAddresses();
   const addresses = watched.length > 0 ? watched : [args.primaryAddress];
   const enabled = await isNotificationsEnabled();

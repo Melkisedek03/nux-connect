@@ -1,94 +1,160 @@
 <!doctype html>
-<html lang="en">
+<html lang="id">
   <head>
     <meta charset="utf-8" />
-    <title>NUX Connect — Approval</title>
+    <title>NUX Connect — Persetujuan</title>
     <style>
+      /* Electric-green cartoon style, from the team mockups
+         (mockups/persetujuan.html). */
+      @font-face {
+        font-family: "Baloo 2";
+        src: url("fonts/baloo2.woff2") format("woff2");
+        font-weight: 700 800;
+        font-display: swap;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
-        font-family: system-ui, sans-serif;
-        margin: 0;
-        padding: 20px;
-        color: #10201a;
-        background: #eaf4ef;
+        font-family: "Baloo 2", "Comic Sans MS", "Chalkboard SE", system-ui, sans-serif;
+        width: 400px;
+        color: #062b12;
+        background: #00e65c;
       }
       header {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        gap: 10px;
+        padding: 14px 16px;
+        background: #00c24e;
+        border-bottom: 4px solid #062b12;
       }
-      h1 {
-        font-size: 16px;
-        margin: 0;
-        color: #0a5c42;
+      .koin {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        border: 3px solid #062b12;
+        box-shadow: 3px 3px 0 #062b12;
+        flex-shrink: 0;
       }
+      header h1 { font-size: 22px; line-height: 1; }
+      header small { font-size: 12px; font-weight: 700; opacity: 0.75; }
       .badge {
-        background: #d97706;
-        color: #fff;
+        margin-left: auto;
+        background: #ffd500;
+        border: 3px solid #062b12;
         border-radius: 999px;
-        padding: 2px 8px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.04em;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 900;
+        box-shadow: 2px 2px 0 #062b12;
       }
-      h2 {
-        font-size: 14px;
-        color: #0a5c42;
-        margin: 16px 0 6px;
-      }
-      p, label {
+      .pita {
+        background: #ffd500;
+        border-bottom: 4px solid #062b12;
+        padding: 8px 16px;
         font-size: 13px;
-        line-height: 1.45;
+        font-weight: 900;
+        text-align: center;
+        letter-spacing: 1px;
       }
+      .isi {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      h1 { font-size: 22px; text-align: center; }
+      h2 { font-size: 16px; }
+      p, label { font-size: 13px; line-height: 1.45; font-weight: 700; }
       input {
         width: 100%;
-        box-sizing: border-box;
         margin: 4px 0 10px;
-        padding: 8px;
-        border: 1px solid #b9d4c7;
-        border-radius: 8px;
+        padding: 12px 14px;
+        border: 3px solid #062b12;
+        border-radius: 14px;
         font: inherit;
+        font-weight: 700;
         background: #fff;
+        box-shadow: 4px 4px 0 #062b12;
       }
       button {
-        border: 0;
-        border-radius: 8px;
-        padding: 8px 14px;
-        background: #0a5c42;
-        color: #fff;
+        border: 3px solid #062b12;
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: #ffd500;
+        color: #062b12;
         font: inherit;
-        font-weight: 600;
+        font-weight: 900;
+        font-size: 17px;
         cursor: pointer;
+        box-shadow: 4px 4px 0 #062b12;
       }
-      button.secondary {
-        background: #fff;
-        color: #0a5c42;
-        border: 1px solid #0a5c42;
-      }
+      button.secondary { background: #fff; }
       button:disabled { opacity: 0.55; cursor: wait; }
-      .actions { display: flex; gap: 8px; margin-top: 14px; }
+      .actions { display: flex; gap: 10px; }
+      .actions button { flex: 1; }
       .error {
         color: #b91c1c;
         font-size: 12.5px;
         min-height: 1em;
         margin: 6px 0;
       }
-      .origin {
-        background: #fff;
-        border: 1px solid #b9d4c7;
-        border-radius: 8px;
-        padding: 10px 12px;
-        font-family: ui-monospace, monospace;
+      .asal {
+        background: #062b12;
+        color: #b6ffce;
+        padding: 12px 16px;
         font-size: 13px;
-        word-break: break-all;
+        font-weight: 800;
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }
-      dl { margin: 10px 0; font-size: 13px; }
-      dt { color: #40695a; margin-top: 8px; }
-      dd { margin: 2px 0 0; font-weight: 600; word-break: break-all; }
+      .asal .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #00e65c;
+        border: 2px solid #b6ffce;
+        flex-shrink: 0;
+      }
+      .asal code {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .kartu {
+        background: #ffffff;
+        border: 3px solid #062b12;
+        border-radius: 16px;
+        padding: 12px 14px;
+        box-shadow: 4px 4px 0 #062b12;
+      }
+      .baris {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 14px;
+        font-weight: 700;
+        padding: 6px 0;
+      }
+      .baris + .baris { border-top: 2px dashed #9adfb4; }
+      .baris .nilai { text-align: right; overflow-wrap: anywhere; }
+      .baris .nilai code { font-size: 12px; }
+      .baris.total { font-size: 17px; font-weight: 900; }
+      .baris.total .nilai { color: #00913a; }
+      .peringatan {
+        background: #fff3bf;
+        border: 3px solid #062b12;
+        border-radius: 14px;
+        padding: 10px 12px;
+        font-size: 13px;
+        font-weight: 800;
+        box-shadow: 4px 4px 0 #062b12;
+      }
       .mono { font-family: ui-monospace, monospace; font-size: 12px; }
       .message {
         background: #fff;
-        border: 1px solid #b9d4c7;
-        border-radius: 8px;
+        border: 3px solid #062b12;
+        border-radius: 14px;
         padding: 10px 12px;
         font-family: ui-monospace, monospace;
         font-size: 12.5px;
@@ -96,131 +162,129 @@
         word-break: break-word;
         max-height: 220px;
         overflow-y: auto;
+        box-shadow: 4px 4px 0 #062b12;
       }
       .note {
         font-size: 12px;
-        color: #40695a;
-        border-top: 1px solid #cfe3da;
-        padding-top: 10px;
-        margin-top: 12px;
+        opacity: 0.75;
+        text-align: center;
       }
       [hidden] { display: none !important; }
     </style>
   </head>
   <body>
     <header>
-      <h1>NUX Connect</h1>
+      <img class="koin" src="icons/icon-48.png" alt="" />
+      <div>
+        <h1>NUX Connect</h1>
+        <small>Dompet Nusacoin</small>
+      </div>
       <span class="badge" id="networkBadge">TESTNET</span>
     </header>
+    <div class="pita" id="testnetBanner">⚠ TESTNET — BUKAN DANA SUNGGUHAN ⚠</div>
 
+    <div class="isi">
     <section id="viewLoading">
-      <p>Loading the request…</p>
+      <p>Memuat permintaan…</p>
     </section>
 
     <section id="viewError" hidden>
-      <h2>Request</h2>
-      <p id="errorMessage">This request can no longer be handled.</p>
+      <h2>Permintaan</h2>
+      <p id="errorMessage">Permintaan ini tidak bisa lagi ditangani.</p>
       <div class="actions">
-        <button id="errorClose" type="button">Close</button>
+        <button id="errorClose" type="button">Tutup</button>
       </div>
     </section>
 
     <section id="viewUnlock" hidden>
-      <h2>Unlock to continue</h2>
-      <p>This site asks for an action from your wallet:</p>
-      <p class="origin" id="unlockOrigin">—</p>
+      <h2>Buka kunci untuk melanjutkan</h2>
+      <p>Situs ini meminta tindakan dari dompetmu:</p>
+      <p class="asal"><span class="dot"></span><code id="unlockOrigin">—</code></p>
       <label>
-        Password
+        Kata sandi
         <input id="unlockPassword" type="password" autocomplete="current-password" />
       </label>
       <p class="error" id="unlockError"></p>
       <div class="actions">
-        <button id="unlockSubmit" type="button">Unlock</button>
-        <button id="unlockReject" type="button" class="secondary">Reject</button>
+        <button id="unlockSubmit" type="button">Buka Kunci</button>
+        <button id="unlockReject" type="button" class="secondary">Tolak</button>
       </div>
     </section>
 
     <section id="viewConnect" hidden>
-      <h2 id="connectTitle">A site wants to connect</h2>
-      <p class="origin" id="connectOrigin">—</p>
-      <h2>Address that will be shared</h2>
-      <p class="mono" id="connectAddress">—</p>
+      <h1 id="connectTitle">Sebuah situs ingin terhubung</h1>
+      <p class="asal"><span class="dot"></span>Permintaan dari <code id="connectOrigin">—</code></p>
+      <div class="kartu">
+        <div class="baris"><span>Alamat yang dibagikan</span><span class="nilai"><code id="connectAddress">—</code></span></div>
+      </div>
       <p>
-        The site will be able to see this address and its balances, and to
-        ask you to approve transactions. It cannot move funds without your
-        approval, and you can disconnect it at any time from the wallet
-        popup.
+        Situs bisa melihat alamat ini dan saldonya, dan meminta
+        persetujuanmu untuk transaksi. Situs tidak bisa memindahkan dana
+        tanpa persetujuanmu, dan kamu bisa memutuskannya kapan saja dari
+        popup dompet.
       </p>
       <p class="error" id="connectError"></p>
       <div class="actions">
-        <button id="connectSubmit" type="button" class="js-approve">Connect</button>
-        <button type="button" class="secondary js-reject">Reject</button>
+        <button id="connectSubmit" type="button" class="js-approve">Hubungkan</button>
+        <button type="button" class="secondary js-reject">Tolak</button>
       </div>
-      <p class="note" id="connectNetworkNote">Network: Nusacoin Testnet (testnet).</p>
+      <p class="note" id="connectNetworkNote">Jaringan: Nusacoin Testnet (testnet).</p>
     </section>
 
     <section id="viewSend" hidden>
-      <h2>Review this payment</h2>
-      <p class="origin" id="sendOrigin">—</p>
-      <dl>
-        <dt>To</dt>
-        <dd class="mono" id="sendTo">—</dd>
-        <dt>Amount (nusan)</dt>
-        <dd id="sendAmount">—</dd>
-        <dt>Network fee (nusan)</dt>
-        <dd id="sendFee">—</dd>
-        <dt>Total (nusan)</dt>
-        <dd id="sendTotal">—</dd>
-        <dt>Change back to this wallet (nusan)</dt>
-        <dd id="sendChange">—</dd>
-        <dt>Replaceable (RBF)</dt>
-        <dd id="sendRbf">—</dd>
-      </dl>
+      <h1>Kirim NUX?</h1>
+      <p class="asal"><span class="dot"></span>Permintaan dari <code id="sendOrigin">—</code></p>
+      <div class="kartu">
+        <div class="baris"><span>Tujuan</span><span class="nilai"><code id="sendTo">—</code></span></div>
+        <div class="baris"><span>Jumlah</span><span class="nilai"><span id="sendAmount">—</span> nusan</span></div>
+        <div class="baris"><span>Fee jaringan</span><span class="nilai" id="sendFee">—</span></div>
+        <div class="baris total"><span>Total keluar</span><span class="nilai"><span id="sendTotal">—</span> nusan</span></div>
+        <div class="baris"><span>Kembalian ke dompet ini</span><span class="nilai" id="sendChange">—</span></div>
+        <div class="baris"><span>Bisa diganti (RBF)</span><span class="nilai" id="sendRbf">—</span></div>
+      </div>
+      <div class="peringatan">⚠ Periksa alamat tujuan sebelum menyetujui. Transaksi yang sudah disiarkan tidak bisa dibatalkan.</div>
       <p class="error" id="sendError"></p>
       <div class="actions">
-        <button type="button" class="js-approve">Send</button>
-        <button type="button" class="secondary js-reject">Reject</button>
+        <button type="button" class="js-approve">Kirim</button>
+        <button type="button" class="secondary js-reject">Tolak</button>
       </div>
-      <p class="note" id="sendNetworkNote">Network: Nusacoin Testnet (testnet).</p>
+      <p class="note" id="sendNetworkNote">Jaringan: Nusacoin Testnet (testnet).</p>
     </section>
 
     <section id="viewSignMessage" hidden>
-      <h2>Sign this message?</h2>
-      <p class="origin" id="signOrigin">—</p>
+      <h1>Tandatangani pesan ini?</h1>
+      <p class="asal"><span class="dot"></span>Permintaan dari <code id="signOrigin">—</code></p>
       <div class="message" id="signMessageText">—</div>
       <p>
-        Signing proves this address is yours. It does not move funds and
-        cannot be used to spend. Sign only messages you understand and
-        expect.
+        Menandatangani membuktikan alamat ini milikmu. Itu tidak
+        memindahkan dana dan tidak bisa dipakai untuk belanja.
+        Tandatangani hanya pesan yang kamu pahami dan harapkan.
       </p>
       <p class="error" id="signError"></p>
       <div class="actions">
-        <button type="button" class="js-approve">Sign</button>
-        <button type="button" class="secondary js-reject">Reject</button>
+        <button type="button" class="js-approve">Tandatangani</button>
+        <button type="button" class="secondary js-reject">Tolak</button>
       </div>
-      <p class="note" id="signNetworkNote">Network: Nusacoin Testnet (testnet).</p>
+      <p class="note" id="signNetworkNote">Jaringan: Nusacoin Testnet (testnet).</p>
     </section>
 
     <section id="viewPsbt" hidden>
-      <h2 id="psbtTitle">Sign this PSBT?</h2>
-      <p class="origin" id="psbtOrigin">—</p>
-      <dl>
-        <dt>Total in (nusan)</dt>
-        <dd id="psbtTotalIn">—</dd>
-        <dt>Total out (nusan)</dt>
-        <dd id="psbtTotalOut">—</dd>
-        <dt>Fee (nusan)</dt>
-        <dd id="psbtFee">—</dd>
-        <dt>Outputs</dt>
-        <dd class="mono" id="psbtOutputs">—</dd>
-      </dl>
+      <h1 id="psbtTitle">Tandatangani PSBT ini?</h1>
+      <p class="asal"><span class="dot"></span>Permintaan dari <code id="psbtOrigin">—</code></p>
+      <div class="kartu">
+        <div class="baris"><span>Total masuk</span><span class="nilai"><span id="psbtTotalIn">—</span> nusan</span></div>
+        <div class="baris"><span>Total keluar</span><span class="nilai"><span id="psbtTotalOut">—</span> nusan</span></div>
+        <div class="baris"><span>Fee</span><span class="nilai" id="psbtFee">—</span></div>
+        <div class="baris"><span>Output</span><span class="nilai"><code id="psbtOutputs">—</code></span></div>
+      </div>
       <p class="error" id="psbtError"></p>
       <div class="actions">
-        <button type="button" class="js-approve" id="psbtSubmit">Sign</button>
-        <button type="button" class="secondary js-reject">Reject</button>
+        <button type="button" class="js-approve" id="psbtSubmit">Tandatangani</button>
+        <button type="button" class="secondary js-reject">Tolak</button>
       </div>
-      <p class="note" id="psbtNetworkNote">Network: Nusacoin Testnet (testnet).</p>
+      <p class="note" id="psbtNetworkNote">Jaringan: Nusacoin Testnet (testnet).</p>
     </section>
+    </div>
 
     <script type="module" src="approval.js"></script>
   </body>

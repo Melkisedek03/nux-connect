@@ -7,6 +7,7 @@
 // logic lives in the background (src/lib/vault.ts).
 
 import "../lib/globals";
+import { encodeQrMatrix } from "../lib/qrcode";
 
 interface StatusResult {
   network: string;
@@ -53,6 +54,8 @@ type InternalRequest =
   | "addressBookAdd"
   | "addressBookRemove"
   | "getMarketInfo"
+  | "getReceiveAddress"
+  | "refreshReceiveAddress"
   | "disconnectOrigin";
 
 interface MarketInfo {
@@ -83,6 +86,16 @@ interface LastSend {
   at: number;
 }
 
+/** The current receive address (see src/lib/receiveaddress.ts):
+ * the address the home row and the receive view show. The dApp-facing
+ * account stays the primary address; only the displayed receive
+ * address moves when the user asks for a fresh one. */
+interface ReceiveAddressResult {
+  address: string;
+  index: number;
+  canRefresh: boolean;
+}
+
 function call<T>(request: InternalRequest, payload: object = {}): Promise<T> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
@@ -106,7 +119,15 @@ function el<T extends HTMLElement>(id: string): T {
   return found as T;
 }
 
-const VIEWS = ["viewLoading", "viewSetup", "viewMnemonic", "viewUnlock", "viewWallet"] as const;
+const VIEWS = [
+  "viewLoading",
+  "viewSetup",
+  "viewMnemonic",
+  "viewUnlock",
+  "viewWallet",
+  "viewSend",
+  "viewReceive",
+] as const;
 
 function show(view: (typeof VIEWS)[number]): void {
   for (const id of VIEWS) {
@@ -135,16 +156,22 @@ function renderWallet(status: StatusResult): void {
     status.network === "testnet" ? "TESTNET" : status.network.toUpperCase(),
   );
   setText("networkName", `${status.networkLabel} (${status.network})`);
-  setText("walletAddress", status.address ?? "—");
   // A failed refresh returns null figures: keep the last-known values
   // instead of blanking them to dashes. The initial "—" in the markup
   // survives untouched until the first successful read, and the note
-  // below still says the backend failed.
+  // below still says the backend failed. The hero total only moves
+  // when both halves are known — a half-known total would be wrong.
   if (status.confirmedBalance !== null) {
     setText("confirmedBalance", formatNusan(status.confirmedBalance));
   }
   if (status.unconfirmedBalance !== null) {
     setText("unconfirmedBalance", formatNusan(status.unconfirmedBalance));
+  }
+  if (status.confirmedBalance !== null && status.unconfirmedBalance !== null) {
+    setText(
+      "totalBalance",
+      formatNusan(status.confirmedBalance + status.unconfirmedBalance),
+    );
   }
   if (status.tipHeight !== null) {
     setText("tipHeight", String(status.tipHeight));
@@ -163,6 +190,101 @@ function renderWallet(status: StatusResult): void {
   void renderLastSend();
   void renderAddressBook();
   void renderMarket(status);
+  void renderReceiveAddress();
+}
+
+/** Draw the current receive address (home row + receive view + QR).
+ * The background resolves the address from the persisted pointer;
+ * this popup only displays it. */
+async function renderReceiveAddress(): Promise<void> {
+  try {
+    const result = await call<ReceiveAddressResult>("getReceiveAddress");
+    applyReceiveAddress(result);
+  } catch {
+    // The wallet view stays usable without the receive address.
+  }
+}
+
+function applyReceiveAddress(result: ReceiveAddressResult): void {
+  setText("walletAddress", result.address);
+  setText("receiveAddress", result.address);
+  el<HTMLButtonElement>("receiveRefresh").disabled = !result.canRefresh;
+  renderQr(el<HTMLCanvasElement>("receiveQr"), result.address);
+}
+
+/** Render a QR code of `text` onto a canvas: dark modules on white,
+ * with a 4-module quiet zone around the symbol. */
+function renderQr(canvas: HTMLCanvasElement, text: string): void {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const matrix = encodeQrMatrix(text);
+  const size = canvas.width;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, size, size);
+  if (!matrix) return;
+  const modules = matrix.length;
+  const quiet = 4;
+  const scale = Math.floor(size / (modules + quiet * 2));
+  const offset = Math.floor((size - scale * modules) / 2);
+  ctx.fillStyle = "#062b12";
+  for (let y = 0; y < modules; y++) {
+    const row = matrix[y];
+    if (!row) continue;
+    for (let x = 0; x < modules; x++) {
+      if (row[x]) {
+        ctx.fillRect(offset + x * scale, offset + y * scale, scale, scale);
+      }
+    }
+  }
+}
+
+/** Copy `text` to the clipboard, with a legacy fallback for contexts
+ * where the async clipboard API is unavailable. The button briefly
+ * shows "Disalin!" as feedback. */
+async function copyText(text: string, button: HTMLButtonElement): Promise<void> {
+  const original = button.textContent;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const area = document.createElement("textarea");
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand("copy");
+      area.remove();
+    }
+    button.textContent = "Disalin!";
+    setTimeout(() => {
+      button.textContent = original;
+    }, 1500);
+  } catch {
+    // Copying failed silently; the address is still visible to select.
+  }
+}
+
+async function handleReceiveRefresh(): Promise<void> {
+  const button = el<HTMLButtonElement>("receiveRefresh");
+  setText("receiveError", "");
+  button.disabled = true;
+  try {
+    const result = await call<ReceiveAddressResult>("refreshReceiveAddress");
+    applyReceiveAddress(result);
+  } catch (error) {
+    setText(
+      "receiveError",
+      error instanceof Error ? error.message : "Tidak bisa memuat alamat baru.",
+    );
+  } finally {
+    // The disabled state follows canRefresh, not the request lifecycle:
+    // re-enable only when a further unused address exists.
+    try {
+      const result = await call<ReceiveAddressResult>("getReceiveAddress");
+      el<HTMLButtonElement>("receiveRefresh").disabled = !result.canRefresh;
+    } catch {
+      button.disabled = false;
+    }
+  }
 }
 
 function renderConnectionsList(connections: Connection[]): void {
@@ -170,7 +292,7 @@ function renderConnectionsList(connections: Connection[]): void {
   list.textContent = "";
   if (connections.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "No sites connected yet.";
+    empty.textContent = "Belum ada situs terhubung.";
     list.appendChild(empty);
     return;
   }
@@ -182,7 +304,7 @@ function renderConnectionsList(connections: Connection[]): void {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
-    button.textContent = "Disconnect";
+    button.textContent = "Cabut";
     button.style.marginLeft = "8px";
     button.addEventListener("click", () => {
       button.disabled = true;
@@ -223,7 +345,7 @@ function renderActivityList(entries: ActivityEntry[]): void {
   const visible = entries.filter((entry) => entry.status !== "internal");
   if (visible.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "No incoming coins yet.";
+    empty.textContent = "Belum ada koin masuk.";
     list.appendChild(empty);
     return;
   }
@@ -260,10 +382,10 @@ async function renderLastSend(): Promise<void> {
     line.hidden = false;
     if (last.ok) {
       line.textContent =
-        `Last send: ${last.amount} nusan to ${last.to} — txid ${last.txid ?? "—"}` +
-        (last.rbf ? " (replaceable)" : "");
+        `Kirim terakhir: ${last.amount} nusan ke ${last.to} — txid ${last.txid ?? "—"}` +
+        (last.rbf ? " (bisa diganti)" : "");
     } else {
-      line.textContent = `Last send failed: ${last.error ?? "unknown error"}`;
+      line.textContent = `Kirim terakhir gagal: ${last.error ?? "kesalahan tidak diketahui"}`;
     }
   } catch {
     // The wallet view stays usable without the last-send line.
@@ -275,7 +397,7 @@ function renderAddressBookList(entries: AddressBookEntry[]): void {
   list.innerHTML = "";
   if (entries.length === 0) {
     const empty = document.createElement("p");
-    empty.textContent = "No saved addresses yet.";
+    empty.textContent = "Belum ada alamat tersimpan.";
     list.appendChild(empty);
     return;
   }
@@ -286,14 +408,17 @@ function renderAddressBookList(entries: AddressBookEntry[]): void {
     row.appendChild(text);
     const use = document.createElement("button");
     use.type = "button";
-    use.textContent = "Use";
+    use.textContent = "Pakai";
     use.addEventListener("click", () => {
       el<HTMLInputElement>("sendTo").value = entry.address;
+      // The send form lives on its own view now; take the user there
+      // so the filled address is visible.
+      show("viewSend");
     });
     row.appendChild(use);
     const remove = document.createElement("button");
     remove.type = "button";
-    remove.textContent = "Delete";
+    remove.textContent = "Hapus";
     remove.className = "secondary";
     remove.addEventListener("click", () => void handleAddressBookRemove(entry.id));
     row.appendChild(remove);
@@ -425,11 +550,11 @@ async function handleAddressBookAdd(): Promise<void> {
   const address = el<HTMLInputElement>("addressBookAddress").value.trim();
   setText("addressBookError", "");
   if (!label) {
-    setText("addressBookError", "Enter a label.");
+    setText("addressBookError", "Masukkan label.");
     return;
   }
   if (!address) {
-    setText("addressBookError", "Enter an address.");
+    setText("addressBookError", "Masukkan alamat.");
     return;
   }
   try {
@@ -440,7 +565,7 @@ async function handleAddressBookAdd(): Promise<void> {
   } catch (error) {
     setText(
       "addressBookError",
-      error instanceof Error ? error.message : "Could not add the address.",
+      error instanceof Error ? error.message : "Tidak bisa menambah alamat.",
     );
   }
 }
@@ -465,16 +590,16 @@ async function handleSend(): Promise<void> {
   const button = el<HTMLButtonElement>("sendSubmit");
   setText("sendError", "");
   if (!to) {
-    setText("sendError", "Enter a recipient address.");
+    setText("sendError", "Masukkan alamat penerima.");
     return;
   }
   if (!/^\d+$/.test(amountText)) {
-    setText("sendError", "Amount must be a whole number of nusan.");
+    setText("sendError", "Jumlah harus bilangan bulat nusan.");
     return;
   }
   const amount = Number(amountText);
   if (!Number.isSafeInteger(amount) || amount <= 0) {
-    setText("sendError", "Amount must be a positive integer number of nusan.");
+    setText("sendError", "Jumlah harus bilangan bulat positif nusan.");
     return;
   }
   button.disabled = true;
@@ -487,10 +612,13 @@ async function handleSend(): Promise<void> {
     await call<unknown>("popupSendDraft", { to, amount, rbf });
     el<HTMLInputElement>("sendTo").value = "";
     el<HTMLInputElement>("sendAmount").value = "";
+    // The approval window is open; back home, where the last-send
+    // line will show the result on the next refresh.
+    show("viewWallet");
   } catch (error) {
     setText(
       "sendError",
-      error instanceof Error ? error.message : "Could not prepare the send.",
+      error instanceof Error ? error.message : "Tidak bisa menyiapkan pengiriman.",
     );
   } finally {
     button.disabled = false;
@@ -543,11 +671,11 @@ async function handleSetup(): Promise<void> {
   const button = el<HTMLButtonElement>("setupSubmit");
   setText("setupError", "");
   if (password.length < 8) {
-    setText("setupError", "Password must be at least 8 characters.");
+    setText("setupError", "Kata sandi minimal 8 karakter.");
     return;
   }
   if (password !== confirm) {
-    setText("setupError", "The two passwords do not match.");
+    setText("setupError", "Kedua kata sandi tidak cocok.");
     return;
   }
   button.disabled = true;
@@ -573,7 +701,7 @@ async function handleSetup(): Promise<void> {
   } catch (error) {
     setText(
       "setupError",
-      error instanceof Error ? error.message : "Setup failed.",
+      error instanceof Error ? error.message : "Penyiapan gagal.",
     );
   } finally {
     button.disabled = false;
@@ -592,7 +720,7 @@ async function handleUnlock(): Promise<void> {
   } catch (error) {
     setText(
       "unlockError",
-      error instanceof Error ? error.message : "Unlock failed.",
+      error instanceof Error ? error.message : "Membuka kunci gagal.",
     );
   } finally {
     button.disabled = false;
@@ -633,6 +761,23 @@ document.addEventListener("DOMContentLoaded", () => {
   el("lockSubmit").addEventListener("click", () => {
     void call("vaultLock").then(() => refresh());
   });
+  el("navSend").addEventListener("click", () => show("viewSend"));
+  el("navReceive").addEventListener("click", () => show("viewReceive"));
+  el("sendBack").addEventListener("click", () => show("viewWallet"));
+  el("receiveBack").addEventListener("click", () => show("viewWallet"));
+  el("homeCopy").addEventListener("click", () => {
+    void copyText(
+      el("walletAddress").textContent ?? "",
+      el<HTMLButtonElement>("homeCopy"),
+    );
+  });
+  el("receiveCopy").addEventListener("click", () => {
+    void copyText(
+      el("receiveAddress").textContent ?? "",
+      el<HTMLButtonElement>("receiveCopy"),
+    );
+  });
+  el("receiveRefresh").addEventListener("click", () => void handleReceiveRefresh());
   el("sendSubmit").addEventListener("click", () => void handleSend());
   el("addressBookAdd").addEventListener("click", () => void handleAddressBookAdd());
   el("notificationsToggle").addEventListener("change", (event) => {
@@ -648,8 +793,8 @@ document.addEventListener("DOMContentLoaded", () => {
   void refresh().catch((error: unknown) => {
     setText(
       "viewLoading",
-      `Could not reach the background worker: ${
-        error instanceof Error ? error.message : "unknown error"
+      `Tidak bisa menghubungi background worker: ${
+        error instanceof Error ? error.message : "kesalahan tidak diketahui"
       }`,
     );
     show("viewLoading");
