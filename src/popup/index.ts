@@ -168,6 +168,10 @@ function show(view: (typeof VIEWS)[number]): void {
   for (const id of VIEWS) {
     el(id).hidden = id !== view;
   }
+  // The network switch lives on the lock view only: the badge is a
+  // button there, a label everywhere else.
+  badgeSwitchable = view === "viewUnlock";
+  paintBadge();
 }
 
 function setText(id: string, text: string): void {
@@ -192,13 +196,27 @@ let lastConfirmedBalance: number | null = null;
  * always matches what the popup shows. */
 let currentNetwork = "testnet";
 
+/** Whether the header badge acts as the network switch right now:
+ * only on the lock view. Anywhere else it is a label, not a button. */
+let badgeSwitchable = false;
+
+/** Paint the header badge for the active network: the label plus
+ * the per-network color — red for testnet, yellow for mainnet —
+ * and the switchable marker when the badge is a button. */
+function paintBadge(): void {
+  const badge = el("networkBadge");
+  badge.textContent =
+    currentNetwork === "testnet" ? "TESTNET" : currentNetwork.toUpperCase();
+  badge.className = `badge ${currentNetwork === "testnet" ? "testnet" : "mainnet"}${
+    badgeSwitchable ? " switchable" : ""
+  }`;
+}
+
 /** Paint the header badge for a network: the label plus the
  * per-network color — red for testnet, yellow for mainnet. */
 function applyNetworkBadge(network: string): void {
   currentNetwork = network;
-  const badge = el("networkBadge");
-  badge.textContent = network === "testnet" ? "TESTNET" : network.toUpperCase();
-  badge.className = `badge ${network === "testnet" ? "testnet" : "mainnet"}`;
+  paintBadge();
 }
 
 /** Apply the current unit to the static labels: the toggle button,
@@ -299,6 +317,11 @@ async function switchNetwork(
 }
 
 async function handleNetworkBadgeClick(): Promise<void> {
+  // The switch lives on the lock view only: switching networks
+  // mid-session — mid-send, mid-review, live balances on screen —
+  // is where the conflicts come from. Anywhere else the badge is a
+  // label, and the click is ignored.
+  if (currentView() !== "viewUnlock") return;
   const target = currentNetwork === "testnet" ? "mainnet" : "testnet";
   if (target === "mainnet" && !mainnetAcknowledged) {
     // First mainnet switch needs the one-time acknowledgment; the
@@ -332,7 +355,9 @@ async function handleNetworkConfirm(): Promise<void> {
 }
 
 function handleNetworkConfirmCancel(): void {
-  show(viewBeforeNetworkConfirm ?? "viewWallet");
+  // The card is only reachable from the lock view, so that is where
+  // Cancel returns — the fallback covers the same view.
+  show(viewBeforeNetworkConfirm ?? "viewUnlock");
   viewBeforeNetworkConfirm = null;
 }
 

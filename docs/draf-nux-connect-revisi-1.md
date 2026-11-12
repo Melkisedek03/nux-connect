@@ -183,7 +183,10 @@ Catatan yang tidak berubah dan tidak tertukar:
 **Amandemen 2026-11-13 (Milestone 12) — mainnet dibuka lewat toggle jaringan:**
 
 > Kunci mainnet dicabut: kedua jaringan kini tersedia lewat toggle di
-> popup (lencana jaringan di header). Testnet tetap menjadi jaringan
+> popup (lencana jaringan di header). Lencana hanya berfungsi sebagai
+> toggle di layar kunci — dompet harus dikunci dulu untuk berganti
+> jaringan, supaya tidak ada perpindahan di tengah kirim, review,
+> atau saldo yang sedang tampil. Testnet tetap menjadi jaringan
 > bawaan — pengguna baru mendarat di testnet, dan mainnet adalah
 > perpindahan eksplisit. Perpindahan pertama ke mainnet memerlukan
 > pengakuan satu kali bahwa mainnet memakai dana sungguhan; pengakuan

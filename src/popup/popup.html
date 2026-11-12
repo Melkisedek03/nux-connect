@@ -61,10 +61,14 @@
         font-size: 12px;
         font-weight: 900;
         box-shadow: 2px 2px 0 #062b12;
+        /* A label by default — a button only on the lock view. */
+        cursor: default;
       }
-      /* The badge is also the network switch: yellow reads as the
-         calm brand color on mainnet, red shouts on testnet — the
-         network that must never be mistaken for real money. */
+      .badge.switchable:not(:disabled) { cursor: pointer; }
+      /* The badge is the network switch, but only on the lock view:
+         yellow reads as the calm brand color on mainnet, red shouts
+         on testnet — the network that must never be mistaken for
+         real money. */
       .badge.mainnet { background: #ffd500; color: #062b12; }
       .badge.testnet { background: #e53935; color: #fff; }
       .isi {
@@ -388,7 +392,7 @@
       </label>
       <p class="error" id="setupError"></p>
       <button id="setupSubmit" type="button" class="lebar">Lanjut</button>
-      <p class="note">Cakupan demo, testnet saja. Mainnet terkunci.</p>
+      <p class="note">Cakupan demo. Jaringan bisa diganti di layar kunci.</p>
     </section>
 
     <section id="viewMnemonic" hidden>
@@ -420,7 +424,8 @@
       <p class="note tengah">
         Vault terkunci otomatis setelah 15 menit tidak dipakai. Kunci
         privat tidak pernah tersimpan — hanya diturunkan sesaat saat
-        menandatangani.
+        menandatangani. Ketuk lencana jaringan di atas untuk berganti
+        jaringan.
       </p>
     </section>
 
