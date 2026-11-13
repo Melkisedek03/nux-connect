@@ -1703,9 +1703,11 @@ const internalHandlers: Record<string, InternalHandler> = {
 chrome.runtime.onInstalled.addListener(() => {
   // Session storage holds the vault decryption key while the vault is
   // unlocked. Restrict it to trusted contexts so no web page context
-  // can ever read it.
+  // can ever read it. Firefox does not implement setAccessLevel, and
+  // its session storage is already restricted to trusted contexts by
+  // default, so the optional call is a no-op there.
   try {
-    void chrome.storage.session.setAccessLevel({
+    void chrome.storage.session.setAccessLevel?.({
       accessLevel: "TRUSTED_CONTEXTS",
     });
   } catch {
