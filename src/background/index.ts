@@ -1229,11 +1229,14 @@ async function handleResolveApproval(
   }
 }
 
+// The extension's own pages live under a browser-specific scheme
+// (chrome-extension:// on Chrome, moz-extension:// on Firefox), so the
+// check uses this extension's own base URL instead of a hardcoded scheme.
 function isExtensionPage(sender: chrome.runtime.MessageSender): boolean {
   return (
     sender.id === chrome.runtime.id &&
     typeof sender.url === "string" &&
-    sender.url.startsWith("chrome-extension://")
+    sender.url.startsWith(chrome.runtime.getURL(""))
   );
 }
 
