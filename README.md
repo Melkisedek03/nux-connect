@@ -28,8 +28,10 @@ Manifest V3, four components with a narrow one-way data flow:
 
 1. **Inpage provider** — exposes `window.nux` to web pages; holds no keys.
 2. **Content script** — message bridge between the page and the extension.
-3. **Background service worker** — the vault, per-site permissions,
-   transaction construction, and signing.
+3. **Background** — the vault, per-site permissions,
+   transaction construction, and signing. It runs as a service worker
+   on Chrome and as a non-persistent event page on Firefox; the code
+   is shared, only the manifest entry and the bundle format differ.
 4. **User interface** — a toolbar popup plus a separate approval window for
    every connection, payment, and signature request.
 
@@ -112,6 +114,7 @@ Requirements: Node.js 20+ and npm.
 ```bash
 npm install
 npm run build       # bundles the extension into dist/
+npm run build:firefox  # Firefox build (event-page background) into dist-firefox/
 npm run typecheck   # strict TypeScript check without emitting files
 ```
 
@@ -123,6 +126,19 @@ Load the result in Chrome, Brave, or Edge:
 4. Click the NUX Connect toolbar icon: the popup shows the active
    network (testnet), the live chain tip height, and the current fee
    rate from the testnet electrs instance.
+
+Firefox (desktop) uses the separate build above, because Firefox does
+not support extension background service workers: its background is a
+non-persistent event page instead. Load it temporarily via
+`about:debugging` (Firefox 128 or later):
+
+1. Open `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on** and select any file inside the
+   `dist-firefox/` folder (for example `manifest.json`).
+3. The extension stays loaded until Firefox restarts. Permanent
+   installation on regular Firefox requires a Mozilla-signed package
+   (AMO self-distribution); that step is not part of this
+   repository's build.
 
 A provider smoke test page lives in `demo/`: serve that folder with any
 static file server, open it, and use its buttons to detect `window.nux`
