@@ -94,13 +94,13 @@
          reset kills every default margin, so the gap is the only
          spacing — and the children's own margins are zeroed so they
          do not double it. */
-      #viewReceive, #viewReview, #viewNetworkConfirm {
+      #viewReceive, #viewReview, #viewNetworkConfirm, #viewSettings, #viewReveal, #viewDelete {
         display: flex;
         flex-direction: column;
         gap: 14px;
       }
-      #viewReceive h2, #viewReview h2, #viewNetworkConfirm h2 { margin-bottom: 0; }
-      #viewReceive .error, #viewReview .error, #viewNetworkConfirm .error { margin: 0; }
+      #viewReceive h2, #viewReview h2, #viewNetworkConfirm h2, #viewSettings h2, #viewReveal h2, #viewDelete h2 { margin-bottom: 0; }
+      #viewReceive .error, #viewReview .error, #viewNetworkConfirm .error, #viewReveal .error, #viewDelete .error { margin: 0; }
       #viewReceive .note, #viewNetworkConfirm .note { margin-top: 0; }
       .label-row {
         display: flex;
@@ -158,6 +158,12 @@
         background: #fff;
         color: #062b12;
       }
+      /* Destructive actions (delete wallet): the same red as the
+         testnet badge, so the danger reads instantly. */
+      button.danger {
+        background: #e53935;
+        color: #fff;
+      }
       button.lebar { width: 100%; }
       button:disabled { opacity: 0.55; cursor: wait; }
       .tabs { display: flex; gap: 10px; }
@@ -188,6 +194,12 @@
         padding: 10px 12px;
         font-size: 12.5px;
         box-shadow: 4px 4px 0 #062b12;
+      }
+      /* The delete warning: red-tinted, so the irreversibility is
+         unmissable even before the words are read. */
+      .warn.danger {
+        background: #fde8e8;
+        border-color: #b91c1c;
       }
       .note {
         font-size: 12px;
@@ -494,7 +506,10 @@
       <p class="rincian-kecil">
         <span id="networkName">—</span> • Blok <span id="tipHeight">—</span> • Fee <span id="feeRate">—</span> nusan/vbyte
       </p>
-      <button id="lockSubmit" type="button" class="secondary lebar">Kunci dompet</button>
+      <div class="tombol">
+        <button id="lockSubmit" type="button" class="secondary">Kunci dompet</button>
+        <button id="navSettings" type="button" class="secondary">Pengaturan</button>
+      </div>
       <p class="note" id="walletNote">
         Dompet testnet. Pembayaran masuk diperiksa kira-kira tiap satu
         menit selama browser berjalan, dan hanya selama browser
@@ -575,6 +590,77 @@
         privasi — saldo dari semua alamatmu tetap terkumpul di dompet
         ini.
       </p>
+    </section>
+
+    <section id="viewSettings" hidden>
+      <button id="settingsBack" type="button" class="kembali">← Kembali</button>
+      <h2>Pengaturan</h2>
+      <section class="bagian">
+        <h2>FRASA PEMULIHAN</h2>
+        <p>Lihat kembali 12 kata frasa pemulihan dompet ini. Perlu kata sandi.</p>
+      </section>
+      <button id="navReveal" type="button" class="lebar">Lihat frasa pemulihan</button>
+      <section class="bagian">
+        <h2>HAPUS DOMPET</h2>
+        <p>Hapus dompet ini dari browser secara permanen. Tanpa frasa pemulihan, dana tidak dapat dikembalikan.</p>
+      </section>
+      <button id="navDelete" type="button" class="lebar danger">Hapus dompet</button>
+    </section>
+
+    <section id="viewReveal" hidden>
+      <button id="revealBack" type="button" class="kembali">← Kembali</button>
+      <h2>Lihat frasa pemulihan</h2>
+      <div id="revealPrompt">
+        <p>Masukkan kata sandi untuk menampilkan frasa pemulihan 12 kata.</p>
+        <label>
+          Kata sandi
+          <input id="revealPassword" type="password" autocomplete="current-password" />
+        </label>
+        <p class="error" id="revealError"></p>
+        <button id="revealSubmit" type="button" class="lebar">Tampilkan frasa</button>
+      </div>
+      <div id="revealWords" hidden>
+        <p class="warn">
+          Tulis 12 kata ini dan simpan di tempat yang aman. Siapa pun
+          yang memegang frasa ini menguasai dompet, dan dompet tidak bisa
+          dipulihkan kalau frasa hilang.
+        </p>
+        <div class="words" id="revealWordsList"></div>
+        <p style="margin-top: 12px">
+          <button id="revealCopy" type="button" class="lebar">Salin frasa</button>
+        </p>
+      </div>
+    </section>
+
+    <section id="viewDelete" hidden>
+      <button id="deleteBack" type="button" class="kembali">← Kembali</button>
+      <h2>Hapus dompet</h2>
+      <div class="warn danger">
+        <p><b>Tindakan ini permanen dan tidak dapat dibatalkan.</b></p>
+        <p>
+          Dompet ini akan dihapus dari browser, beserta seluruh datanya:
+          buku alamat, situs terhubung, dan riwayat. Semua dana — di
+          testnet MAUPUN mainnet — hilang selamanya tanpa frasa
+          pemulihan 12 kata. Tidak ada siapa pun (bukan tim, bukan
+          dukungan) yang dapat memulihkan dompet setelah dihapus.
+        </p>
+      </div>
+      <button id="deleteRevealFirst" type="button" class="lebar secondary">Lihat frasa pemulihan dulu</button>
+      <label>
+        <input type="checkbox" id="deleteAcknowledge" />
+        Saya mengerti dompet ini akan dihapus permanen dan dana tidak
+        dapat dikembalikan tanpa frasa pemulihan.
+      </label>
+      <label>
+        Kata sandi
+        <input id="deletePassword" type="password" autocomplete="current-password" />
+      </label>
+      <label>
+        Ketik HAPUS untuk mengonfirmasi
+        <input id="deleteConfirm" type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <p class="error" id="deleteError"></p>
+      <button id="deleteSubmit" type="button" class="lebar danger" disabled>Hapus dompet ini</button>
     </section>
     </div>
 

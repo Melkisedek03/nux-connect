@@ -16,6 +16,7 @@ Ringkasan keputusan yang masuk revisi ini:
 | 8 | Notifikasi koin masuk masuk ruang lingkup MVP | Disetujui 2026-11-11 |
 | 9 | Saldo terkonfirmasi = >= 1 konfirmasi | Disahkan 2026-11-11 |
 | 10 | Pagar feeRate kiriman dApp: maksimum 546 nusan/vbyte | Disahkan 2026-11-11 (rumusan tarif; versi "total fee" sempat tertulis karena salah tulis dan sudah ditarik kembali) |
+| 11 | Pengaturan dompet: lihat frasa pemulihan (berpagar kata sandi) dan hapus dompet (peringatan keras, 3 gerbang) | Disahkan 2026-11-13 |
 | 1 | Mekanisme sesi vault MV3: `chrome.storage.session` | DISAHKAN 2026-11-11 |
 | 2 | Format sign message: legacy persis Nusacoin Core | DISAHKAN 2026-11-11 |
 
@@ -289,6 +290,41 @@ ke daftar "Yang termasuk" dalam Ruang lingkup MVP, dengan teks berikut:
 > sempat tertulis menggantikan rumusan tarif di atas, lalu ditarik kembali
 > pada hari yang sama sebagai salah tulis. Rumusan yang sah
 > adalah rumusan tarif pada butir ini.
+
+## Butir 11 — Pengaturan dompet: lihat frasa pemulihan dan hapus dompet (MENAMBAH fitur ke ruang lingkup) — Disahkan 2026-11-13
+
+> Layar Pengaturan baru di popup memuat dua fitur. **Lihat frasa
+> pemulihan** menampilkan kembali 12 kata frasa pemulihan setelah
+> kata sandi dimasukkan ulang dan diverifikasi terhadap vault
+> (dekripsi percobaan; kata sandi yang salah ditolak dan tidak
+> menampilkan apa pun). Frasa hanya hidup di memori tampilan itu
+> dan dihapus saat tampilan ditinggalkan; frasa tidak pernah
+> ditulis ke penyimpanan mana pun, dan tidak pernah dikirim ke
+> halaman web — hanya ke halaman ekstensi sendiri lewat kanal
+> internal.
+>
+> **Hapus dompet** mengembalikan ekstensi ke kondisi instalasi
+> baru: setelah kata sandi diverifikasi (kata sandi yang salah
+> membatalkan segalanya sebelum ada yang dihapus), persetujuan yang
+> tertunda diselesaikan sebagai penolakan (4001) dan jendelanya
+> ditutup, situs yang terhubung dikirimi `accountsChanged` kosong,
+> lalu seluruh `chrome.storage.local` dan `chrome.storage.session`
+> dihapus — vault, kunci publik akun, buku alamat, koneksi,
+> cache dompet, dan riwayat. Alarm polling `nux-connect-poll`
+> sengaja dipertahankan: alarm itu dibuat sekali saat instalasi
+> dan tidak pernah dibuat ulang, sehingga menghapusnya akan
+> mematikan notifikasi dompet berikutnya secara diam-diam; tanpa
+> vault, handler polling tidak punya apa-apa untuk diperiksa.
+>
+> Penghapusan dijaga tiga gerbang di UI — kotak centang pengakuan
+> bahwa tindakan ini permanen dan dana tidak dapat dikembalikan
+> tanpa frasa pemulihan, masukkan ulang kata sandi, dan ketik
+> HAPUS — ditambah layar peringatan keras yang menyatakan
+> eksplisit bahwa seluruh dana di KEDUA jaringan (testnet dan
+> mainnet) hilang selamanya tanpa frasa 12 kata dan tidak ada
+> siapa pun yang dapat memulihkannya. Layar peringatan menawarkan
+> jalan ke Lihat frasa pemulihan dulu, supaya frasa sempat
+> dicadangkan sebelum penghapusan.
 
 ## Catatan fase lanjutan — Lightning (di luar MVP, di luar revisi ini)
 

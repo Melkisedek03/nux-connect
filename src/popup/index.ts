@@ -2,9 +2,11 @@
 //
 // The popup never touches secrets beyond forwarding the password (and,
 // at import, the pasted phrase) to the background worker over the
-// extension's internal message channel, and showing the freshly
-// generated recovery phrase exactly once after creation. All vault
-// logic lives in the background (src/lib/vault.ts).
+// extension's internal message channel, showing the freshly generated
+// recovery phrase exactly once after creation, and the password-gated
+// reveal flow (the phrase lives only in that view's memory and is
+// cleared when the view is left). All vault logic lives in the
+// background (src/lib/vault.ts).
 
 import "../lib/globals";
 import { encodeQrMatrix } from "../lib/qrcode";
@@ -51,6 +53,8 @@ type InternalRequest =
   | "vaultImport"
   | "vaultUnlock"
   | "vaultLock"
+  | "revealPhrase"
+  | "deleteWallet"
   | "getConnections"
   | "getActivity"
   | "setNotificationsEnabled"
@@ -183,6 +187,9 @@ const VIEWS = [
   "viewReview",
   "viewReceive",
   "viewNetworkConfirm",
+  "viewSettings",
+  "viewReveal",
+  "viewDelete",
 ] as const;
 
 function show(view: (typeof VIEWS)[number]): void {
@@ -1131,13 +1138,7 @@ async function handleSetup(): Promise<void> {
         "vaultCreate",
         { password },
       );
-      const words = el("mnemonicWords");
-      words.textContent = "";
-      result.mnemonic.split(" ").forEach((word, i) => {
-        const span = document.createElement("span");
-        span.textContent = `${i + 1}. ${word}`;
-        words.appendChild(span);
-      });
+      renderWords("mnemonicWords", result.mnemonic);
       show("viewMnemonic");
     } else {
       const mnemonic = el<HTMLTextAreaElement>("importMnemonic").value;
@@ -1170,6 +1171,112 @@ async function handleUnlock(): Promise<void> {
     );
   } finally {
     button.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wallet settings (Milestone 13): reveal the recovery phrase and
+// delete the wallet.
+//
+// The revealed phrase lives only in this document's memory: it is
+// cleared the moment the reveal view is left (back button, delete
+// flow, or the popup closing with the document). It is never written
+// to any storage. The delete gates — acknowledgment checkbox,
+// password, typed HAPUS — are UX only; the background re-verifies
+// the password before deleting anything.
+
+/** The revealed mnemonic, in memory only; null outside the reveal view. */
+let revealedMnemonic: string | null = null;
+
+function renderWords(containerId: string, mnemonic: string): void {
+  const words = el(containerId);
+  words.textContent = "";
+  mnemonic.split(" ").forEach((word, i) => {
+    const span = document.createElement("span");
+    span.textContent = `${i + 1}. ${word}`;
+    words.appendChild(span);
+  });
+}
+
+/** Clear the revealed phrase from memory and from the view. */
+function clearRevealedMnemonic(): void {
+  revealedMnemonic = null;
+  el("revealWordsList").textContent = "";
+  el("revealWords").hidden = true;
+  el("revealPrompt").hidden = false;
+}
+
+function openRevealView(): void {
+  clearRevealedMnemonic();
+  el<HTMLInputElement>("revealPassword").value = "";
+  setText("revealError", "");
+  show("viewReveal");
+}
+
+async function handleRevealSubmit(): Promise<void> {
+  const password = el<HTMLInputElement>("revealPassword").value;
+  const button = el<HTMLButtonElement>("revealSubmit");
+  setText("revealError", "");
+  button.disabled = true;
+  try {
+    const result = await call<{ mnemonic: string }>("revealPhrase", {
+      password,
+    });
+    revealedMnemonic = result.mnemonic;
+    renderWords("revealWordsList", result.mnemonic);
+    el("revealPrompt").hidden = true;
+    el("revealWords").hidden = false;
+  } catch (error) {
+    setText(
+      "revealError",
+      error instanceof Error ? error.message : "Menampilkan frasa gagal.",
+    );
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/** The delete button enables only when all three gates pass: the
+ * acknowledgment checkbox, a password, and the typed HAPUS. */
+function updateDeleteButton(): void {
+  const acknowledged = el<HTMLInputElement>("deleteAcknowledge").checked;
+  const password = el<HTMLInputElement>("deletePassword").value;
+  const typed = el<HTMLInputElement>("deleteConfirm").value;
+  el<HTMLButtonElement>("deleteSubmit").disabled = !(
+    acknowledged &&
+    password.length > 0 &&
+    typed === "HAPUS"
+  );
+}
+
+function openDeleteView(): void {
+  el<HTMLInputElement>("deleteAcknowledge").checked = false;
+  el<HTMLInputElement>("deletePassword").value = "";
+  el<HTMLInputElement>("deleteConfirm").value = "";
+  setText("deleteError", "");
+  updateDeleteButton();
+  show("viewDelete");
+}
+
+async function handleDeleteSubmit(): Promise<void> {
+  const password = el<HTMLInputElement>("deletePassword").value;
+  const button = el<HTMLButtonElement>("deleteSubmit");
+  setText("deleteError", "");
+  button.disabled = true;
+  try {
+    await call<{ deleted: boolean }>("deleteWallet", { password });
+    // The wallet is gone: drop any revealed phrase and re-read the
+    // status, which routes the popup back to the setup view.
+    clearRevealedMnemonic();
+    el<HTMLInputElement>("deletePassword").value = "";
+    el<HTMLInputElement>("deleteConfirm").value = "";
+    await refresh();
+  } catch (error) {
+    setText(
+      "deleteError",
+      error instanceof Error ? error.message : "Menghapus dompet gagal.",
+    );
+    updateDeleteButton();
   }
 }
 
@@ -1213,6 +1320,41 @@ document.addEventListener("DOMContentLoaded", () => {
   el("networkConfirmCancel").addEventListener("click", () => handleNetworkConfirmCancel());
   el("navSend").addEventListener("click", () => show("viewSend"));
   el("navReceive").addEventListener("click", () => show("viewReceive"));
+  el("navSettings").addEventListener("click", () => show("viewSettings"));
+  el("settingsBack").addEventListener("click", () => show("viewWallet"));
+  el("navReveal").addEventListener("click", () => openRevealView());
+  el("revealBack").addEventListener("click", () => {
+    clearRevealedMnemonic();
+    show("viewSettings");
+  });
+  el("revealSubmit").addEventListener("click", () => void handleRevealSubmit());
+  el("revealPassword").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (el<HTMLButtonElement>("revealSubmit").disabled) return;
+    void handleRevealSubmit();
+  });
+  el("revealCopy").addEventListener("click", () => {
+    if (revealedMnemonic === null) return;
+    void copyText(revealedMnemonic, el<HTMLButtonElement>("revealCopy"));
+  });
+  el("navDelete").addEventListener("click", () => openDeleteView());
+  el("deleteBack").addEventListener("click", () => show("viewSettings"));
+  el("deleteRevealFirst").addEventListener("click", () => openRevealView());
+  el("deleteAcknowledge").addEventListener("change", () => updateDeleteButton());
+  el("deletePassword").addEventListener("input", () => updateDeleteButton());
+  el("deleteConfirm").addEventListener("input", () => updateDeleteButton());
+  el("deleteSubmit").addEventListener("click", () => void handleDeleteSubmit());
+  // Enter submits the delete, like Enter unlocks — only when the
+  // gates already pass, so a stray Enter cannot delete anything.
+  const deleteEnter = (event: KeyboardEvent) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (el<HTMLButtonElement>("deleteSubmit").disabled) return;
+    void handleDeleteSubmit();
+  };
+  el("deletePassword").addEventListener("keydown", deleteEnter);
+  el("deleteConfirm").addEventListener("keydown", deleteEnter);
   el("sendBack").addEventListener("click", () => show("viewWallet"));
   el("receiveBack").addEventListener("click", () => show("viewWallet"));
   el("homeCopy").addEventListener("click", () => {
