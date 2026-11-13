@@ -273,9 +273,44 @@ export async function unlockVault(password: string): Promise<void> {
 }
 
 /**
+ * Open the vault payload with a password, without touching the
+ * session. The password re-authenticates an action (reveal, delete)
+ * instead of unlocking the vault; a wrong password throws
+ * VaultError from the AES-GCM authentication failure.
+ */
+async function openWithPassword(password: string): Promise<VaultPayload> {
+  const record = await loadRecord();
+  if (!record) throw new VaultError("No wallet exists yet.");
+  const key = await deriveKey(
+    password,
+    base64ToBytes(record.kdf.salt),
+    record.kdf.iterations,
+  );
+  return openPayload(record, key);
+}
+
+/** Verify a password against the vault, without changing the session. */
+export async function verifyPassword(password: string): Promise<void> {
+  await openWithPassword(password);
+}
+
+/**
+ * Read the mnemonic after verifying the password. The caller is the
+ * password-gated reveal flow: the mnemonic is returned to a trusted
+ * extension page only, and only after the password check — never to
+ * a web page, and never without the password.
+ */
+export async function revealMnemonic(password: string): Promise<string> {
+  const payload = await openWithPassword(password);
+  await touchSession();
+  return payload.mnemonic;
+}
+
+/**
  * Read the mnemonic using the session key. Background-internal: the
- * result is used transiently (e.g. by future signing code) and must
- * never be sent to a page or the popup after creation/import.
+ * result is used transiently (e.g. by signing code). It reaches an
+ * extension page only through the password-gated reveal flow, and
+ * never reaches a web page.
  */
 export async function mnemonicFromSession(): Promise<string> {
   const record = await loadRecord();

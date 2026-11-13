@@ -11,8 +11,9 @@
 //   explicit approval there executes, records state, and answers.
 //   Rejecting — or closing the window — settles the request with error
 //   4001, as EIP-1193 prescribes.
-// - Own the vault lifecycle (create, import, unlock, lock, auto-lock)
-//   on behalf of the popup. Secrets never leave this context: the popup
+// - Own the vault lifecycle (create, import, unlock, lock, auto-lock,
+//   reveal, delete) on behalf of the popup. Secrets never leave this
+//   context except through the password-gated reveal: the popup
 //   receives the freshly generated mnemonic exactly once (at creation)
 //   and addresses afterwards; signing keys are derived transiently from
 //   the session-held mnemonic at approval time and never stored.
@@ -91,8 +92,10 @@ import {
   loadAccountPublics,
   lockVault,
   mnemonicFromSession,
+  revealMnemonic,
   touchSession,
   unlockVault,
+  verifyPassword,
   type AccountPublics,
 } from "../lib/vault";
 import {
@@ -1575,6 +1578,50 @@ async function handleSetNetwork(
   return { network: id };
 }
 
+// ---------------------------------------------------------------------------
+// Wallet settings (Milestone 13): reveal the recovery phrase and
+// delete the wallet. Both are password-gated in the background: the
+// popup's gates (checkbox, typed confirmation) are UX only, the
+// password check here is the real one. Deleting wipes every stored
+// record — vault, account publics, address book, connections,
+// caches, activity — and tells connected sites their accounts are
+// gone (accountsChanged with []), so the extension returns to the
+// fresh-install state. The poll alarm is deliberately kept: it was
+// created once at install and is never re-created, so clearing it
+// would silently kill notifications for the next wallet; with no
+// vault the poll handler simply has nothing to check.
+async function deleteWalletAndNotify(): Promise<void> {
+  // Settle anything awaiting approval first: the provider calls
+  // behind them must not hang, and their windows must not linger
+  // over a wallet that no longer exists.
+  for (const pending of [...pendingById.values()]) {
+    rejectRequest(pending, true);
+  }
+  // Tell every known tab its accounts are gone — before the wipe,
+  // because the tab registry lives in session storage. The shared
+  // emitAccountsChangedEverywhere cannot do this: it reads the
+  // current accounts, which still exist at this point.
+  const known = await loadKnownTabs();
+  for (const [origin, tabIds] of Object.entries(known)) {
+    for (const tabId of tabIds) {
+      sendEventToTab(tabId, origin, "accountsChanged", [[]]);
+    }
+  }
+  await chrome.storage.local.clear();
+  await chrome.storage.session.clear();
+  // Re-apply the trusted-contexts restriction: clear() removes
+  // stored items, not the access level, but re-applying costs
+  // nothing and keeps the next wallet's session restricted even if
+  // a browser ever resets the level on clear.
+  try {
+    void chrome.storage.session.setAccessLevel?.({
+      accessLevel: "TRUSTED_CONTEXTS",
+    });
+  } catch {
+    // Older Chrome versions: access level defaults apply.
+  }
+}
+
 const internalHandlers: Record<string, InternalHandler> = {
   getStatus: async () => handleGetStatus(),
   vaultCreate: async (message) => {
@@ -1594,6 +1641,17 @@ const internalHandlers: Record<string, InternalHandler> = {
     await lockVault();
     await emitAccountsChangedEverywhere();
     return { unlocked: false };
+  },
+  revealPhrase: async (message) => {
+    const mnemonic = await revealMnemonic(message.password ?? "");
+    return { mnemonic };
+  },
+  deleteWallet: async (message) => {
+    // The password is verified before anything is touched: a wrong
+    // password throws here and deletes nothing.
+    await verifyPassword(message.password ?? "");
+    await deleteWalletAndNotify();
+    return { deleted: true };
   },
   getApprovalRequest: async (message) =>
     handleGetApprovalRequest(message.id ?? ""),
