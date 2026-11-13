@@ -38,7 +38,11 @@ import {
   isOriginConnected,
   listConnections,
 } from "../lib/connections";
-import { ElectrsClient } from "../lib/electrs";
+import {
+  ElectrsClient,
+  RateLimitError,
+  formatRateLimitMessage,
+} from "../lib/electrs";
 import { derivePrivateKey, primaryAddress } from "../lib/keys";
 import { fetchMarketInfo, type MarketInfo } from "../lib/market";
 import {
@@ -1137,8 +1141,15 @@ async function handleGetStatus(): Promise<InternalStatus> {
     status.tipHeight = await client.getTipHeight();
     status.feeRate = await client.getFeeRate();
   } catch (error) {
-    status.statusError =
-      error instanceof Error ? error.message : "electrs unreachable";
+    // A rate limit gets a friendly line with the wait the server
+    // asked for, instead of a bare HTTP status; the popup shows the
+    // status error as-is.
+    if (error instanceof RateLimitError) {
+      status.statusError = formatRateLimitMessage(error.retryAfterMs);
+    } else {
+      status.statusError =
+        error instanceof Error ? error.message : "electrs unreachable";
+    }
   }
   return status;
 }
