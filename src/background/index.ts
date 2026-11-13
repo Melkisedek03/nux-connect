@@ -24,7 +24,9 @@
 // - Serve popup status: network, tip height, fee rate, and — when a
 //   wallet exists — the primary address and its balances, the balances
 //   from the persistent offline UTXO cache (synced from the active
-//   network's own electrs instance in the background).
+//   network's own electrs instance in the background). The status
+//   also carries the new-version notice: a daily check against the
+//   latest GitHub release, cached 24 hours, fail open.
 
 import "../lib/globals";
 import {
@@ -120,6 +122,11 @@ import {
   readDisplayUnit,
   writeDisplayUnit,
 } from "../lib/units";
+import {
+  dismissUpdateVersion,
+  getUpdateStatus,
+  readDismissedVersion,
+} from "../lib/updatecheck";
 
 const POLL_ALARM = "nux-connect-poll";
 const ERROR_SERVER = -32000;
@@ -1116,11 +1123,20 @@ interface InternalStatus {
   address: string | null;
   confirmedBalance: number | null;
   unconfirmedBalance: number | null;
+  updateAvailable: boolean;
+  latestVersion: string | null;
+  releaseUrl: string | null;
 }
 
 async function handleGetStatus(): Promise<InternalStatus> {
   const network = await activeNetwork();
   const client = new ElectrsClient(network);
+  // The update check runs alongside the electrs reads: its cached
+  // path is one storage read, and its once-a-day fetch must not
+  // serialize behind the wallet scan. It never throws (fail open).
+  const updatePromise = getUpdateStatus(
+    chrome.runtime.getManifest().version,
+  );
   const status: InternalStatus = {
     network: network.id,
     networkLabel: network.label,
@@ -1132,6 +1148,9 @@ async function handleGetStatus(): Promise<InternalStatus> {
     address: await walletPrimaryAddress(),
     confirmedBalance: null,
     unconfirmedBalance: null,
+    updateAvailable: false,
+    latestVersion: null,
+    releaseUrl: null,
   };
   try {
     // Balances first: they come from the persistent cache, so a tip or
@@ -1154,6 +1173,14 @@ async function handleGetStatus(): Promise<InternalStatus> {
         error instanceof Error ? error.message : "electrs unreachable";
     }
   }
+  // The dismiss is per-version: a dismissed version never shows
+  // again, but a newer version later still does.
+  const update = await updatePromise;
+  const dismissed = await readDismissedVersion();
+  status.updateAvailable =
+    update.updateAvailable && dismissed !== update.latestVersion;
+  status.latestVersion = update.latestVersion;
+  status.releaseUrl = update.releaseUrl;
   return status;
 }
 
@@ -1269,6 +1296,7 @@ interface InternalMessage {
   unit?: string;
   network?: string;
   acknowledge?: boolean;
+  version?: string;
 }
 
 type InternalHandler = (message: InternalMessage) => Promise<unknown>;
@@ -1673,6 +1701,11 @@ const internalHandlers: Record<string, InternalHandler> = {
     const unit = parseDisplayUnit(message.unit);
     await writeDisplayUnit(unit);
     return { unit };
+  },
+  dismissUpdate: async (message) => {
+    const version = typeof message.version === "string" ? message.version : "";
+    if (version !== "") await dismissUpdateVersion(version);
+    return { dismissed: version };
   },
   notificationsOpened: async () => {
     await clearBadge();

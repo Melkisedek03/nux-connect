@@ -17,6 +17,7 @@ Ringkasan keputusan yang masuk revisi ini:
 | 9 | Saldo terkonfirmasi = >= 1 konfirmasi | Disahkan 2026-11-11 |
 | 10 | Pagar feeRate kiriman dApp: maksimum 546 nusan/vbyte | Disahkan 2026-11-11 (rumusan tarif; versi "total fee" sempat tertulis karena salah tulis dan sudah ditarik kembali) |
 | 11 | Pengaturan dompet: lihat frasa pemulihan (berpagar kata sandi) dan hapus dompet (peringatan keras, 3 gerbang) | Disahkan 2026-11-13 |
+| 12 | Pemberitahuan versi baru: banner di popup saat ada rilis baru (cek harian ke GitHub Releases API, cache 24 jam, gagal terbuka) | Disahkan 2026-11-13 |
 | 1 | Mekanisme sesi vault MV3: `chrome.storage.session` | DISAHKAN 2026-11-11 |
 | 2 | Format sign message: legacy persis Nusacoin Core | DISAHKAN 2026-11-11 |
 
@@ -325,6 +326,38 @@ ke daftar "Yang termasuk" dalam Ruang lingkup MVP, dengan teks berikut:
 > siapa pun yang dapat memulihkannya. Layar peringatan menawarkan
 > jalan ke Lihat frasa pemulihan dulu, supaya frasa sempat
 > dicadangkan sebelum penghapusan.
+
+## Butir 12 — Pemberitahuan versi baru (MENAMBAH fitur ke ruang lingkup) — Disahkan 2026-11-13
+
+> Ekstensi dipasang secara sideload (Load unpacked / Temporary
+> Add-on), sehingga browser tidak pernah memperbaruinya sendiri —
+> hanya distribusi toko (Chrome Web Store / AMO) yang
+> memperbarui otomatis. Sebagai gantinya, ekstensi memeriksa
+> rilis terbaru dan menampilkan banner di tampilan dompet saat
+> ada versi baru, dengan tautan ke halaman rilis; pengguna tetap
+> mengunduh dan memuat ulang secara manual.
+>
+> Sumber kebenaran: GitHub Releases API publik (tanpa auth),
+> `releases/latest` — dibaca `tag_name` (awalan "v" dilepas) dan
+> `html_url`. Hasilnya di-cache 24 jam di `chrome.storage.local`
+> (`updateCheckCache`); cache yang masih segar dipakai tanpa
+> fetch. Pemeriksaan gagal terbuka: fetch gagal, offline,
+> respons rusak, atau bentuk tak dikenal menghasilkan "tidak ada
+> pembaruan yang diketahui" — tanpa banner, tanpa throw, tanpa
+> error yang terlihat pengguna — dan cache sebelumnya tetap
+> dipakai. Tautan rilis divalidasi ke host `github.com` saja;
+> tidak ada yang pernah diunduh atau dieksekusi dari pemeriksaan
+> ini.
+>
+> Banner hanya tampil di tampilan dompet (keadaan terbuka), tidak
+> pernah di layar kunci, setup, atau tampilan lain. Banner
+> menyebut versi baru ("Versi baru 0.15.0 tersedia") dengan
+> tautan "Lihat rilis" yang membuka halaman rilis di tab baru,
+> dan tombol tutup (X). Penutupan bersifat per-versi
+> (`dismissedUpdateVersion`): menutup 0.15.0 tidak menyembunyikan
+> 0.16.0 nanti. Di luar ruang lingkup: badge di ikon ekstensi,
+> unduh otomatis, pasang otomatis, dan changelog di banner —
+> halaman rilis yang memuatnya.
 
 ## Catatan fase lanjutan — Lightning (di luar MVP, di luar revisi ini)
 

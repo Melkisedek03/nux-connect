@@ -201,6 +201,29 @@
         background: #fde8e8;
         border-color: #b91c1c;
       }
+      /* The new-version banner: the warning yellow, laid out as a
+         row with the link and a plain-text dismiss button. The
+         [hidden] rule matters: the flex display would otherwise
+         override the hidden attribute. */
+      .warn.update {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .warn.update[hidden] { display: none; }
+      .warn.update a {
+        color: inherit;
+        font-weight: 900;
+        white-space: nowrap;
+      }
+      .warn.update .tutup {
+        margin-left: auto;
+        background: none;
+        border: none;
+        box-shadow: none;
+        padding: 2px 4px;
+        font-size: 14px;
+      }
       .note {
         font-size: 12px;
         opacity: 0.75;
@@ -458,6 +481,11 @@
         <div class="rincian">Terkonfirmasi <b id="confirmedBalance">—</b> • Belum terkonfirmasi <span id="unconfirmedBalance">—</span></div>
         <button id="unitToggle" type="button" class="satuan">Satuan: nusan</button>
       </section>
+      <div id="updateBanner" class="warn update" hidden>
+        <span id="updateBannerText">—</span>
+        <a id="updateBannerLink" href="#" target="_blank" rel="noopener">Lihat rilis</a>
+        <button id="updateBannerDismiss" type="button" class="tutup" aria-label="Tutup pemberitahuan">✕</button>
+      </div>
       <div class="alamat">
         <code id="walletAddress">—</code>
         <button id="homeCopy" type="button">SALIN</button>

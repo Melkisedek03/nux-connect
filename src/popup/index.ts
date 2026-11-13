@@ -29,6 +29,10 @@ interface StatusResult {
   address: string | null;
   confirmedBalance: number | null;
   unconfirmedBalance: number | null;
+  /** New-version notice (optional: older status shapes omit it). */
+  updateAvailable?: boolean;
+  latestVersion?: string | null;
+  releaseUrl?: string | null;
 }
 
 interface Connection {
@@ -73,6 +77,7 @@ type InternalRequest =
   | "refreshReceiveAddress"
   | "getDisplayUnit"
   | "setDisplayUnit"
+  | "dismissUpdate"
   | "getNetwork"
   | "setNetwork"
   | "disconnectOrigin";
@@ -398,6 +403,37 @@ function setSetupMode(mode: "create" | "import"): void {
   setText("setupError", "");
 }
 
+/** The version the update banner currently shows, if any — the
+ * dismiss button reports this version to the background. */
+let shownUpdateVersion: string | null = null;
+
+/**
+ * The new-version banner, wallet view only: it lives inside
+ * viewWallet and is rendered only from renderWallet, so the lock,
+ * setup, and every other view never show it. The link points at
+ * the official release page — the background already validated its
+ * host as github.com.
+ */
+function renderUpdateBanner(status: StatusResult): void {
+  const banner = el("updateBanner");
+  if (
+    status.updateAvailable === true &&
+    status.latestVersion &&
+    status.releaseUrl
+  ) {
+    shownUpdateVersion = status.latestVersion;
+    setText(
+      "updateBannerText",
+      `Versi baru ${status.latestVersion} tersedia`,
+    );
+    el<HTMLAnchorElement>("updateBannerLink").href = status.releaseUrl;
+    banner.hidden = false;
+  } else {
+    shownUpdateVersion = null;
+    banner.hidden = true;
+  }
+}
+
 function renderWallet(status: StatusResult): void {
   applyNetworkBadge(status.network);
   setText("networkName", `${status.networkLabel} (${status.network})`);
@@ -439,6 +475,7 @@ function renderWallet(status: StatusResult): void {
   } else {
     setText("walletNote", walletNoteDefault);
   }
+  renderUpdateBanner(status);
   show("viewWallet");
   void renderConnections();
   void renderActivity();
@@ -1315,6 +1352,16 @@ document.addEventListener("DOMContentLoaded", () => {
     void call("vaultLock").then(() => refresh());
   });
   el("unitToggle").addEventListener("click", () => void handleUnitToggle());
+  el("updateBannerDismiss").addEventListener("click", () => {
+    const version = shownUpdateVersion;
+    el("updateBanner").hidden = true;
+    shownUpdateVersion = null;
+    if (version) {
+      // Fire-and-forget: if the write fails, the next refresh
+      // re-shows the banner — the background still reports it.
+      void call("dismissUpdate", { version }).catch(() => {});
+    }
+  });
   el("networkBadge").addEventListener("click", () => void handleNetworkBadgeClick());
   el("networkConfirmOk").addEventListener("click", () => void handleNetworkConfirm());
   el("networkConfirmCancel").addEventListener("click", () => handleNetworkConfirmCancel());
