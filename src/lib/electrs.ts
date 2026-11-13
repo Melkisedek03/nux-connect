@@ -74,8 +74,69 @@ export const FALLBACK_FEE_RATE = 1;
  * 429 means the request was rejected before processing, but after a
  * network failure the transaction may already be accepted, and a
  * blind retry would report a duplicate as a failure.
+ *
+ * A 429 carrying a Retry-After header is honored instead of this
+ * schedule: the header names the wait the limiter asks for, capped
+ * at MAX_RETRY_AFTER_MS.
  */
 const RATE_LIMIT_DELAYS_MS = [600, 1500, 3000, 6000];
+
+/** Longest wait honored from a Retry-After header, in milliseconds. */
+const MAX_RETRY_AFTER_MS = 60_000;
+
+/**
+ * Thrown when the endpoint keeps answering HTTP 429 after the
+ * retries are spent. Carries the wait the server last asked for (if
+ * any), so callers can tell a rate limit apart from other failures
+ * and say when to try again.
+ */
+export class RateLimitError extends Error {
+  /** Milliseconds to wait before retrying, when the server said so. */
+  readonly retryAfterMs: number | null;
+  constructor(retryAfterMs: number | null) {
+    super("electrs rate limited (HTTP 429)");
+    this.name = "RateLimitError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/**
+ * Parse a Retry-After header value: whole seconds, or an HTTP-date
+ * (the wait is the delta from now). Returns the wait in milliseconds,
+ * capped at MAX_RETRY_AFTER_MS, or null when the value is absent or
+ * unparsable.
+ */
+function parseRetryAfter(value: string | null): number | null {
+  if (value === null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+  }
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) {
+    return Math.min(Math.max(dateMs - Date.now(), 0), MAX_RETRY_AFTER_MS);
+  }
+  return null;
+}
+
+/**
+ * Friendly Indonesian status line for a rate-limit failure, carrying
+ * the wait the server asked for when known. The background formats
+ * the status error with this; the popup shows it as-is.
+ */
+export function formatRateLimitMessage(retryAfterMs: number | null): string {
+  if (retryAfterMs === null) {
+    return "Server membatasi permintaan sementara — coba lagi sebentar lagi.";
+  }
+  const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  return `Server membatasi permintaan sementara — coba lagi dalam ~${seconds} detik.`;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -86,19 +147,36 @@ async function fetchWithRetry(
   init: { method?: string; body?: string } | undefined,
   retryNetworkFailure: boolean,
 ): Promise<Response> {
+  let retryAfterMs: number | null = null;
   for (let attempt = 0; ; attempt++) {
     const baseDelay = RATE_LIMIT_DELAYS_MS[attempt];
     try {
       const response = await fetch(url, init);
-      if (response.status !== 429 || baseDelay === undefined) {
+      if (response.status !== 429) {
         return response;
       }
+      // A 429 means rejected before processing, so waiting the
+      // server's stated window and retrying is safe. The header is
+      // honored exactly (no jitter: waiting less would re-trip the
+      // limiter); without it the scheduled backoff applies. Once the
+      // retries are spent the caller gets a RateLimitError carrying
+      // the last stated wait, not a bare 429 response.
+      retryAfterMs = parseRetryAfter(
+        response.headers?.get("Retry-After") ?? null,
+      );
+      if (baseDelay === undefined) {
+        throw new RateLimitError(retryAfterMs);
+      }
+      await sleep(retryAfterMs ?? baseDelay * (0.75 + Math.random() * 0.5));
     } catch (error) {
+      if (error instanceof RateLimitError) {
+        throw error;
+      }
       if (!retryNetworkFailure || baseDelay === undefined) {
         throw error;
       }
+      await sleep(baseDelay * (0.75 + Math.random() * 0.5));
     }
-    await sleep(baseDelay * (0.75 + Math.random() * 0.5));
   }
 }
 
