@@ -129,20 +129,41 @@ interface ReceiveAddressResult {
   canRefresh: boolean;
 }
 
+// The MV3 background (a service worker on Chrome, an event page on
+// Firefox) sleeps when idle and wakes on demand. A message sent while
+// it is still starting can fail with "Could not establish connection"
+// even though the background is fine, so that one failure is retried
+// once after a short wait. Every other failure rejects immediately,
+// and the retry never repeats.
+const RECONNECT_DELAY_MS = 500;
+
 function call<T>(request: InternalRequest, payload: object = {}): Promise<T> {
   return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(
-      { kind: "nux-internal", request, ...payload },
-      (response: { ok: boolean; result?: T; error?: { message: string } }) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-        } else if (response?.ok) {
-          resolve(response.result as T);
-        } else {
-          reject(new Error(response?.error?.message ?? "Internal error."));
-        }
-      },
-    );
+    const message = { kind: "nux-internal", request, ...payload };
+    const attempt = (retried: boolean) => {
+      chrome.runtime.sendMessage(
+        message,
+        (response: { ok: boolean; result?: T; error?: { message: string } }) => {
+          const lastError = chrome.runtime.lastError;
+          if (lastError) {
+            if (
+              !retried &&
+              typeof lastError.message === "string" &&
+              lastError.message.includes("Could not establish connection")
+            ) {
+              setTimeout(() => attempt(true), RECONNECT_DELAY_MS);
+              return;
+            }
+            reject(new Error(lastError.message));
+          } else if (response?.ok) {
+            resolve(response.result as T);
+          } else {
+            reject(new Error(response?.error?.message ?? "Internal error."));
+          }
+        },
+      );
+    };
+    attempt(false);
   });
 }
 
